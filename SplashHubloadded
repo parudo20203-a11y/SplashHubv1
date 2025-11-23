@@ -43,6 +43,9 @@ local maxZoomEnabled=false
 local FOV=60
 
 local ESPEnabled=false
+local ESPFolder = Instance.new("Folder", workspace)
+ESPFolder.Name="ESPFolder"
+
 local AutoAimEnabled=false
 local AutoAimRange=10
 
@@ -70,6 +73,7 @@ UIS.InputEnded:Connect(function(input, gp)
     if k==Enum.KeyCode.LeftShift then moveKeys.Shift=false end
 end)
 
+-- ===== Main RenderStepped =====
 RunService.RenderStepped:Connect(function()
     if hrp and hum then
         -- Fly
@@ -91,12 +95,14 @@ RunService.RenderStepped:Connect(function()
         -- SpeedBoost
         hum.WalkSpeed=(speedBoost and (normalWalkSpeed+boostAmount)) or normalWalkSpeed
     end
+
     -- FOV
     cam.FieldOfView=FOV
     -- MaxZoomCamera
     if maxZoomEnabled then cam.CameraType=Enum.CameraType.Custom end
+
     -- AutoAim
-    if AutoAimEnabled then
+    if AutoAimEnabled and hrp then
         for _,p in pairs(game.Players:GetPlayers()) do
             if p~=player and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
                 local target = p.Character.HumanoidRootPart
@@ -108,6 +114,32 @@ RunService.RenderStepped:Connect(function()
                 end
             end
         end
+    end
+
+    -- ESP
+    if ESPEnabled then
+        for _,p in pairs(game.Players:GetPlayers()) do
+            if p~=player and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+                if not ESPFolder:FindFirstChild(p.Name) then
+                    local billboard = Instance.new("BillboardGui")
+                    billboard.Name=p.Name
+                    billboard.Adornee=p.Character.HumanoidRootPart
+                    billboard.Size=UDim2.new(0,50,0,50)
+                    billboard.AlwaysOnTop=true
+                    local text = Instance.new("TextLabel", billboard)
+                    text.Size=UDim2.new(1,0,1,0)
+                    text.BackgroundTransparency=1
+                    text.Text=p.Name
+                    text.TextColor3=Color3.new(1,0,0)
+                    text.TextScaled=true
+                    billboard.Parent=ESPFolder
+                end
+            else
+                if ESPFolder:FindFirstChild(p.Name) then ESPFolder[p.Name]:Destroy() end
+            end
+        end
+    else
+        ESPFolder:ClearAllChildren()
     end
 end)
 
@@ -153,11 +185,11 @@ MainTab:CreateToggle({Name="WalkLegArmLock", CurrentValue=false, Callback=functi
 MainTab:CreateToggle({Name="SpeedBoost", CurrentValue=false, Callback=function(v) speedBoost=v end})
 MainTab:CreateSlider({Name="FOV", Range={60,120}, Increment=1, CurrentValue=FOV, Callback=function(v) FOV=v end})
 MainTab:CreateToggle({Name="MaxZoomCamera", CurrentValue=false, Callback=function(v) maxZoomEnabled=v end})
+MainTab:CreateToggle({Name="ESP", CurrentValue=false, Callback=function(v) ESPEnabled=v end})
+MainTab:CreateToggle({Name="AutoAim", CurrentValue=false, Callback=function(v) AutoAimEnabled=v end})
+MainTab:CreateSlider({Name="AutoAim Range", Range={1,50}, Increment=1, CurrentValue=AutoAimRange, Callback=function(v) AutoAimRange=v end})
 
 VisualTab:CreateToggle({Name="Cloud Color Toggle", CurrentValue=false, Callback=function(v) cloudToggle=v end})
 VisualTab:CreateColorPicker({Name="Cloud Color", Default=cloudColor, Callback=function(c) cloudColor=c end})
 VisualTab:CreateToggle({Name="All Part Color Toggle", CurrentValue=false, Callback=function(v) allPartToggle=v end})
 VisualTab:CreateColorPicker({Name="All Part Color", Default=allPartColor, Callback=function(c) allPartColor=c end})
-
-MainTab:CreateToggle({Name="AutoAim", CurrentValue=false, Callback=function(v) AutoAimEnabled=v end})
-MainTab:CreateSlider({Name="AutoAim Range", Range={1,50}, Increment=1, CurrentValue=AutoAimRange, Callback=function(v) AutoAimRange=v end})
