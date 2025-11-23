@@ -1,5 +1,8 @@
 -- Rayfield 読み込み
-local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
+local success, Rayfield = pcall(function()
+    return loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
+end)
+if not success or not Rayfield then return warn("Rayfieldの読み込みに失敗") end
 
 local Window = Rayfield:CreateWindow({
     Name = "Splash Hub v1",
@@ -10,13 +13,13 @@ local Window = Rayfield:CreateWindow({
 
 local MainTab = Window:CreateTab("Player", 4483362458)
 
---===== Services & Player =====--
+-- Services & Player
 local player = game.Players.LocalPlayer
 local cam = workspace.CurrentCamera
 local UIS = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 
---===== Player Variables =====--
+-- Player Variables
 local char, hrp, hum
 local function updateCharacter(c)
     char = c
@@ -26,11 +29,10 @@ end
 player.CharacterAdded:Connect(updateCharacter)
 if player.Character then updateCharacter(player.Character) end
 
---===== Fly =====--
+-- Fly
 local flying = false
 local FlySpeed = 50
 local moveKeys = {W=false, A=false, S=false, D=false, Space=false, Shift=false}
-
 UIS.InputBegan:Connect(function(input, gp)
     if gp then return end
     local k = input.KeyCode
@@ -41,7 +43,6 @@ UIS.InputBegan:Connect(function(input, gp)
     if k == Enum.KeyCode.Space then moveKeys.Space = true end
     if k == Enum.KeyCode.LeftShift then moveKeys.Shift = true end
 end)
-
 UIS.InputEnded:Connect(function(input, gp)
     if gp then return end
     local k = input.KeyCode
@@ -52,7 +53,6 @@ UIS.InputEnded:Connect(function(input, gp)
     if k == Enum.KeyCode.Space then moveKeys.Space = false end
     if k == Enum.KeyCode.LeftShift then moveKeys.Shift = false end
 end)
-
 RunService.RenderStepped:Connect(function()
     if flying and hrp then
         local dir = Vector3.zero
@@ -63,85 +63,64 @@ RunService.RenderStepped:Connect(function()
         if moveKeys.D then dir += cf.RightVector end
         if moveKeys.Space then dir += Vector3.yAxis end
         if moveKeys.Shift then dir -= Vector3.yAxis end
-        if dir.Magnitude > 0 then
-            hrp.Velocity = dir.Unit * FlySpeed
-        else
-            hrp.Velocity = Vector3.zero
-        end
+        hrp.Velocity = (dir.Magnitude > 0 and dir.Unit * FlySpeed) or Vector3.zero
     end
 end)
 
---===== Noclip =====--
+-- Noclip
 local noclip = false
 RunService.Stepped:Connect(function()
     if noclip and char then
         for _, v in pairs(char:GetDescendants()) do
-            if v:IsA("BasePart") then
-                v.CanCollide = false
-            end
+            if v:IsA("BasePart") then v.CanCollide = false end
         end
     end
 end)
 
---===== Infinity Jump =====--
+-- Infinity Jump
 local infinityJump = false
 UIS.JumpRequest:Connect(function()
-    if infinityJump and hum then
-        hum:ChangeState(Enum.HumanoidStateType.Jumping)
-    end
+    if infinityJump and hum then hum:ChangeState(Enum.HumanoidStateType.Jumping) end
 end)
 
---===== WalkLegArmLock =====--
+-- WalkLegArmLock
 local walkLock = false
 RunService.RenderStepped:Connect(function()
     if walkLock and hum then
-        for _, track in pairs(hum:GetPlayingAnimationTracks()) do
-            track:Stop()
-        end
+        for _, track in pairs(hum:GetPlayingAnimationTracks()) do track:Stop() end
     end
 end)
 
---===== SpeedBoost =====--
+-- SpeedBoost
 local speedBoost = false
 local normalWalkSpeed = 16
 local boostAmount = 10
 RunService.RenderStepped:Connect(function()
-    if hum then
-        hum.WalkSpeed = speedBoost and normalWalkSpeed + boostAmount or normalWalkSpeed
-    end
+    if hum then hum.WalkSpeed = speedBoost and normalWalkSpeed + boostAmount or normalWalkSpeed end
 end)
 
---===== Camera FOV & MaxZoomCamera =====--
+-- FOV / MaxZoomCamera
 local currentFOV = 70
 local maxZoomEnabled = false
 cam.FieldOfView = currentFOV
-
 MainTab:CreateSlider({
     Name="FOV",
     Range={70,200},
     Increment=1,
     CurrentValue=currentFOV,
-    Callback=function(v)
-        currentFOV = v
-    end
+    Callback=function(v) currentFOV=v end
 })
-
 RunService.RenderStepped:Connect(function()
-    if cam then
-        cam.FieldOfView = currentFOV
-        if maxZoomEnabled then
-            cam.CameraType = Enum.CameraType.Custom
-        end
-    end
+    cam.FieldOfView = currentFOV
+    if maxZoomEnabled then cam.CameraType = Enum.CameraType.Custom end
 end)
 
---===== ESP =====--
+-- ESP
 local espEnabled = false
 local espBoxes = {}
 local function getPrimaryPart(c)
-    return c:FindFirstChild("HumanoidRootPart") or c.PrimaryPart
+    return c:FindFirstChild("HumanoidRootPart") or c:FindFirstChild("Head") or c:FindFirstChild("Torso") or c.PrimaryPart
 end
-
 local function createESP(target)
     if espBoxes[target] then return end
     local box = Drawing.new("Square")
@@ -152,7 +131,6 @@ local function createESP(target)
     box.Filled = false
     espBoxes[target] = box
 end
-
 RunService.RenderStepped:Connect(function()
     if espEnabled then
         for _, p in pairs(game.Players:GetPlayers()) do
@@ -165,47 +143,28 @@ RunService.RenderStepped:Connect(function()
                     box.Position = Vector2.new(pos.X-10,pos.Y-10)
                     box.Size = Vector2.new(20,20)
                     box.Visible = true
-                else
-                    box.Visible = false
-                end
+                else box.Visible = false end
             end
         end
     else
-        for _, box in pairs(espBoxes) do
-            box.Visible = false
-        end
+        for _, box in pairs(espBoxes) do box.Visible=false end
     end
 end)
 
---===== AutoAim =====--
+-- AutoAim
 local autoAim = false
 local autoAimActive = false
 local aimRadius = 10
-
-MainTab:CreateToggle({
-    Name="AutoAim（ON/OFF）",
-    CurrentValue=false,
-    Callback=function(v)
-        autoAim = v
-        autoAimActive = v
-    end
-})
-
-UIS.InputBegan:Connect(function(input, gp)
-    if gp then return end
-    if input.KeyCode == Enum.KeyCode.R then
-        autoAim = not autoAim
-        autoAimActive = autoAim
-    end
-end)
-
+local function getAimPart(c)
+    return c:FindFirstChild("HumanoidRootPart") or c:FindFirstChild("Head") or c:FindFirstChild("Torso") or c.PrimaryPart
+end
 local function getClosestPlayer()
+    if not hrp then return nil end
     local closestDist = math.huge
     local closestPlayer = nil
-    if not hrp then return nil end
     for _, p in pairs(game.Players:GetPlayers()) do
-        if p ~= player and p.Character and getPrimaryPart(p.Character) then
-            local dist = (getPrimaryPart(p.Character).Position - hrp.Position).Magnitude
+        if p ~= player and p.Character and getAimPart(p.Character) then
+            local dist = (getAimPart(p.Character).Position - hrp.Position).Magnitude
             if dist < closestDist and dist <= aimRadius then
                 closestDist = dist
                 closestPlayer = p
@@ -214,25 +173,31 @@ local function getClosestPlayer()
     end
     return closestPlayer
 end
-
+UIS.InputBegan:Connect(function(input, gp)
+    if gp then return end
+    if input.KeyCode == Enum.KeyCode.R then
+        autoAim = not autoAim
+        autoAimActive = autoAim
+    end
+end)
 RunService.RenderStepped:Connect(function()
     if autoAimActive and hrp and cam then
         local target = getClosestPlayer()
         if target then
-            local targetPos = getPrimaryPart(target.Character).Position
-            local direction = (targetPos - cam.CFrame.Position).Unit
-            cam.CFrame = CFrame.new(cam.CFrame.Position, cam.CFrame.Position + direction)
+            cam.CameraType = Enum.CameraType.Custom
+            local targetPos = getAimPart(target.Character).Position
+            cam.CFrame = CFrame.new(cam.CFrame.Position, targetPos)
             local tool = player.Character and player.Character:FindFirstChildOfClass("Tool")
             if tool and tool:FindFirstChild("Activate") then
                 tool:Activate()
-                autoAimActive = false
-                autoAim = false
+                autoAimActive=false
+                autoAim=false
             end
         end
     end
 end)
 
---===== Rayfield UI =====--
+-- Rayfield UI
 MainTab:CreateToggle({Name="Fly（ON/OFF）", CurrentValue=false, Callback=function(v) flying=v end})
 MainTab:CreateSlider({Name="Fly Speed", Range={10,200}, Increment=1, CurrentValue=FlySpeed, Callback=function(v) FlySpeed=v end})
 MainTab:CreateToggle({Name="Noclip（壁抜け ON/OFF）", CurrentValue=false, Callback=function(v) noclip=v end})
@@ -241,3 +206,4 @@ MainTab:CreateToggle({Name="ESP（ON/OFF）", CurrentValue=false, Callback=funct
 MainTab:CreateToggle({Name="MaxZoomCamera（ON/OFF）", CurrentValue=false, Callback=function(v) maxZoomEnabled=v end})
 MainTab:CreateToggle({Name="WalkLegArmLock（ON/OFF）", CurrentValue=false, Callback=function(v) walkLock=v end})
 MainTab:CreateToggle({Name="SpeedBoost（ON/OFF）", CurrentValue=false, Callback=function(v) speedBoost=v end})
+MainTab:CreateToggle({Name="AutoAim（ON/OFF）", CurrentValue=false, Callback=function(v) autoAim=v autoAimActive=v end})
