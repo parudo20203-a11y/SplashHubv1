@@ -117,11 +117,11 @@ RunService.RenderStepped:Connect(function()
         end
         if closest then
             local newCFrame = CFrame.new(cam.CFrame.Position, closest.Position)
-            cam.CFrame = cam.CFrame:Lerp(newCFrame, 0.2) -- 滑らかに吸い付かない
+            cam.CFrame = cam.CFrame:Lerp(newCFrame, 0.2)
         end
     end
 
-    -- Silent Aim
+    -- Silent Aim (完全自動)
     if SilentAimEnabled and hrp then
         local closest
         local minDist = AimRange
@@ -138,8 +138,35 @@ RunService.RenderStepped:Connect(function()
         if closest then
             local newCFrame = CFrame.new(cam.CFrame.Position, closest.Position)
             cam.CFrame = cam.CFrame:Lerp(newCFrame, 0.2)
-            -- Fling用処理はゲーム依存
+            -- 自動クリック
+            mouse1click()
         end
+    end
+
+    -- ESP
+    if ESPEnabled then
+        for _,p in pairs(game.Players:GetPlayers()) do
+            if p~=player and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+                if not ESPFolder:FindFirstChild(p.Name) then
+                    local billboard = Instance.new("BillboardGui")
+                    billboard.Name=p.Name
+                    billboard.Adornee=p.Character.HumanoidRootPart
+                    billboard.Size=UDim2.new(0,50,0,50)
+                    billboard.AlwaysOnTop=true
+                    local text = Instance.new("TextLabel", billboard)
+                    text.Size=UDim2.new(1,0,1,0)
+                    text.BackgroundTransparency=1
+                    text.Text=p.Name
+                    text.TextColor3=Color3.new(1,0,0)
+                    text.TextScaled=true
+                    billboard.Parent=ESPFolder
+                end
+            else
+                if ESPFolder:FindFirstChild(p.Name) then ESPFolder[p.Name]:Destroy() end
+            end
+        end
+    else
+        ESPFolder:ClearAllChildren()
     end
 end)
 
