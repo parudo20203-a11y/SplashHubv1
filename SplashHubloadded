@@ -7,12 +7,12 @@ local Window = Rayfield:CreateWindow({
     ConfigurationSaving = {Enabled = true, FolderName = "MyAwesomeUI"}
 })
 
--- Tabs
+-- ===== Tabs =====
 local PlayerTab = Window:CreateTab("Player", 4483362458)
 local VisualTab = Window:CreateTab("Visual", 4483362458)
 local AimTab = Window:CreateTab("Aim", 4483362458)
 
--- Services
+-- ===== Services & Character =====
 local player = game.Players.LocalPlayer
 local UIS = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
@@ -20,7 +20,6 @@ local Lighting = game:GetService("Lighting")
 local cam = workspace.CurrentCamera
 local mouse = player:GetMouse()
 
--- Character
 local char, hrp, hum
 local normalWalkSpeed = 16
 local function updateChar(c)
@@ -32,26 +31,32 @@ end
 player.CharacterAdded:Connect(updateChar)
 if player.Character then updateChar(player.Character) end
 
--- ===== Player variables =====
+-- ===== Player Vars =====
 local flying, FlySpeed = false, 50
-local moveKeys = {W=false, A=false, S=false, D=false, Space=false, Shift=false}
-local noclip=false
-local infinityJump=false
-local walkLock=false
-local speedBoost=false
+local moveKeys = {W=false,A=false,S=false,D=false,Space=false,Shift=false}
+local noclip, infinityJump, walkLock, speedBoost, maxZoomEnabled, ESPEnabled = false,false,false,false,false,false
 local boostAmount=10
-local maxZoomEnabled=false
 local FOV=60
-local ESPEnabled=false
 local ESPFolder = Instance.new("Folder", workspace)
 ESPFolder.Name="ESPFolder"
 
--- Aim variables
-local AimBotEnabled=false
-local SilentAimEnabled=false
-local AimRange=10
+-- ===== Aim Vars =====
+local AimBotEnabled, SilentAimEnabled = false, false
+local AimRange = 10
 
--- ===== Key Input =====
+-- ===== Visual Vars =====
+local cloudToggle=false
+local cloudColor=Color3.fromRGB(135,206,235)
+local allPartToggle=false
+local allPartColor=Color3.fromRGB(255,255,255)
+local sky = workspace:FindFirstChildOfClass("Sky") or Instance.new("Sky", workspace)
+local atmosphere = Lighting:FindFirstChildOfClass("Atmosphere")
+if not atmosphere then
+    atmosphere = Instance.new("Atmosphere")
+    atmosphere.Parent = Lighting
+end
+
+-- ===== Input Handling =====
 UIS.InputBegan:Connect(function(input, gp)
     if gp then return end
     local k = input.KeyCode
@@ -73,7 +78,7 @@ UIS.InputEnded:Connect(function(input, gp)
     if k==Enum.KeyCode.LeftShift then moveKeys.Shift=false end
 end)
 
--- ===== RenderStepped =====
+-- ===== Core Loops =====
 RunService.RenderStepped:Connect(function()
     if hrp and hum then
         -- Fly
@@ -88,58 +93,28 @@ RunService.RenderStepped:Connect(function()
             if moveKeys.Shift then dir-=Vector3.yAxis end
             hrp.Velocity=(dir.Magnitude>0 and dir.Unit*FlySpeed) or Vector3.zero
         end
+
         -- WalkLegArmLock
         if walkLock then
             for _,track in pairs(hum:GetPlayingAnimationTracks()) do track:Stop() end
         end
+
         -- SpeedBoost
-        hum.WalkSpeed=(speedBoost and (normalWalkSpeed+boostAmount)) or normalWalkSpeed
+        hum.WalkSpeed = (speedBoost and (normalWalkSpeed+boostAmount)) or normalWalkSpeed
     end
 
     -- FOV
-    cam.FieldOfView=FOV
-    -- MaxZoomCamera
+    cam.FieldOfView = FOV
     if maxZoomEnabled then cam.CameraType=Enum.CameraType.Custom end
 
-    -- AimBot
-    if AimBotEnabled and hrp then
-        local closest
-        local minDist = AimRange
-        for _,p in pairs(game.Players:GetPlayers()) do
-            if p~=player and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
-                local target = p.Character.HumanoidRootPart
-                local dist = (target.Position - hrp.Position).Magnitude
-                if dist <= minDist then
-                    minDist = dist
-                    closest = target
-                end
-            end
-        end
-        if closest then
-            local newCFrame = CFrame.new(cam.CFrame.Position, closest.Position)
-            cam.CFrame = cam.CFrame:Lerp(newCFrame, 0.2)
-        end
+    -- Visual
+    if cloudToggle then
+        Lighting.OutdoorAmbient = cloudColor
+        atmosphere.Color = cloudColor
     end
-
-    -- Silent Aim (完全自動)
-    if SilentAimEnabled and hrp then
-        local closest
-        local minDist = AimRange
-        for _,p in pairs(game.Players:GetPlayers()) do
-            if p~=player and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
-                local target = p.Character.HumanoidRootPart
-                local dist = (target.Position - hrp.Position).Magnitude
-                if dist <= minDist then
-                    minDist = dist
-                    closest = target
-                end
-            end
-        end
-        if closest then
-            local newCFrame = CFrame.new(cam.CFrame.Position, closest.Position)
-            cam.CFrame = cam.CFrame:Lerp(newCFrame, 0.2)
-            -- 自動クリック
-            mouse1click()
+    if allPartToggle then
+        for _,p in pairs(workspace:GetDescendants()) do
+            if p:IsA("BasePart") then p.Color=allPartColor end
         end
     end
 
@@ -168,6 +143,43 @@ RunService.RenderStepped:Connect(function()
     else
         ESPFolder:ClearAllChildren()
     end
+
+    -- AimBot
+    if AimBotEnabled then
+        local closest,minDist = nil,AimRange
+        for _,p in pairs(game.Players:GetPlayers()) do
+            if p~=player and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+                local target = p.Character.HumanoidRootPart
+                local dist = (target.Position - hrp.Position).Magnitude
+                if dist<=minDist then
+                    minDist = dist
+                    closest = target
+                end
+            end
+        end
+        if closest then
+            cam.CFrame = cam.CFrame:Lerp(CFrame.new(cam.CFrame.Position,closest.Position),0.2)
+        end
+    end
+
+    -- Silent Aim (自動クリック)
+    if SilentAimEnabled then
+        local closest,minDist = nil,AimRange
+        for _,p in pairs(game.Players:GetPlayers()) do
+            if p~=player and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+                local target = p.Character.HumanoidRootPart
+                local dist = (target.Position - hrp.Position).Magnitude
+                if dist<=minDist then
+                    minDist = dist
+                    closest = target
+                end
+            end
+        end
+        if closest then
+            cam.CFrame = cam.CFrame:Lerp(CFrame.new(cam.CFrame.Position,closest.Position),0.2)
+            mouse1click()
+        end
+    end
 end)
 
 -- Noclip
@@ -182,25 +194,6 @@ end)
 -- Infinity Jump
 UIS.JumpRequest:Connect(function()
     if infinityJump and hum then hum:ChangeState(Enum.HumanoidStateType.Jumping) end
-end)
-
--- ===== Visual Tab =====
-local cloudToggle=false
-local cloudColor=Color3.fromRGB(135,206,235)
-local allPartToggle=false
-local allPartColor=Color3.fromRGB(255,255,255)
-local sky = workspace:FindFirstChildOfClass("Sky") or Instance.new("Sky", workspace)
-
-RunService.RenderStepped:Connect(function()
-    if cloudToggle then
-        Lighting.OutdoorAmbient = cloudColor
-        sky.SkyboxBk=""; sky.SkyboxFt=""; sky.SkyboxUp=""; sky.SkyboxDn=""; sky.SkyboxLf=""; sky.SkyboxRt=""
-    end
-    if allPartToggle then
-        for _,p in pairs(workspace:GetDescendants()) do
-            if p:IsA("BasePart") then p.Color=allPartColor end
-        end
-    end
 end)
 
 -- ===== Rayfield UI =====
@@ -221,7 +214,10 @@ VisualTab:CreateColorPicker({Name="Cloud Color", Default=cloudColor, Callback=fu
 VisualTab:CreateToggle({Name="All Part Color Toggle", CurrentValue=false, Callback=function(v) allPartToggle=v end})
 VisualTab:CreateColorPicker({Name="All Part Color", Default=allPartColor, Callback=function(c) allPartColor=c end})
 
--- Aim Tab
-AimTab:CreateToggle({Name="AimBot", CurrentValue=false, Callback=function(v) AimBotEnabled=v end})
-AimTab:CreateToggle({Name="Silent Aim", CurrentValue=false, Callback=function(v) SilentAimEnabled=v end})
-AimTab:CreateSlider({Name="Aim Range", Range={1,50}, Increment=1, CurrentValue=AimRange, Callback=function(v) AimRange=v end})
+-- Aim Tab (遅延で確実に表示)
+task.spawn(function()
+    task.wait(0.1)
+    AimTab:CreateToggle({Name="AimBot", CurrentValue=false, Callback=function(v) AimBotEnabled=v end})
+    AimTab:CreateToggle({Name="Silent Aim", CurrentValue=false, Callback=function(v) SilentAimEnabled=v end})
+    AimTab:CreateSlider({Name="Aim Range", Range={1,50}, Increment=1, CurrentValue=AimRange, Callback=function(v) AimRange=v end})
+end)
