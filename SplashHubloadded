@@ -1,38 +1,52 @@
-task.wait(2) -- 起動待ち
+task.delay(2, function() -- ここでAimタブの描画タイミングを遅延させる
 
-local success, err = pcall(function()
+    if not Window then return end  -- 安全策
+    
+    local AimTab = Window:CreateTab("Aim", 4483362458)
+    if not AimTab then return end  -- さらに安全策
 
-    -- ライブラリ読み込み
-    local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/xHeptc/Kavo-UI-Library/main/source.lua"))()
-    local Window = Library.CreateLib("Custom Menu", "BloodTheme")
+    local AimSection = AimTab:CreateSection("Aim Settings")
+    if not AimSection then return end
 
-    -- まず Aim タブ「だけ」作る（ここでは空）
-    local AimTab = Window:NewTab("Aim")
+    --========= AimBot =========--
+    AimSection:CreateToggle({
+        Name = "AimBot",
+        CurrentValue = false,
+        Callback = function(v)
+            _G.AimBot = v
+        end,
+    })
 
-    -- ここで Aim セクションを先に作成（まだ描画しない）
-    local AimSection = AimTab:NewSection("Aim Settings")
+    --========= Silent Aim =========--
+    AimSection:CreateToggle({
+        Name = "Silent Aim",
+        CurrentValue = false,
+        Callback = function(v)
+            _G.SilentAim = v
+        end,
+    })
 
-    -- ▼ Aim トグルをここで全部生成（これが読み込まれないと Aim タブは描画されない）
-    local togglesLoaded = false
+    --========= Color Pickers（絶対に Color3 指定）=========--
+    local defaultColor = Color3.fromRGB(255, 255, 255)
 
-    -- AimBot
-    local AimBotToggle = AimSection:NewToggle("Aimbot", "Auto aim within 10 studs", function(state)
-        getgenv().AimbotEnabled = state
-    end)
+    AimSection:CreateColorPicker({
+        Name = "Cloud Color",
+        Color = defaultColor,
+        Callback = function(color)
+            game.Lighting.Atmosphere.Color = color
+        end,
+    })
 
-    -- Silent Aim
-    local SilentToggle = AimSection:NewToggle("Silent Aim", "Auto lock + auto click", function(state)
-        getgenv().SilentAim = state
-    end)
-
-    -- ここまで来たら「トグル生成完了」
-    togglesLoaded = true
-
-    -- Aimタブの描画をここで強制更新
-    Library:Notify("Aim Loaded", "Aim settings are now active!", 3)
+    AimSection:CreateColorPicker({
+        Name = "All Part Color",
+        Color = defaultColor,
+        Callback = function(color)
+            for _,p in next, workspace:GetDescendants() do
+                if p:IsA("BasePart") then
+                    p.Color = color
+                end
+            end
+        end,
+    })
 
 end)
-
-if not success then
-    warn("UI Load Error: "..tostring(err))
-end
