@@ -8,7 +8,7 @@ local Window = Rayfield:CreateWindow({
 })
 
 -- Tabs
-local MainTab = Window:CreateTab("Player", 4483362458)
+local PlayerTab = Window:CreateTab("Player", 4483362458)
 local VisualTab = Window:CreateTab("Visual", 4483362458)
 local AimTab = Window:CreateTab("Aim", 4483362458)
 
@@ -42,13 +42,9 @@ local speedBoost=false
 local boostAmount=10
 local maxZoomEnabled=false
 local FOV=60
-
 local ESPEnabled=false
 local ESPFolder = Instance.new("Folder", workspace)
 ESPFolder.Name="ESPFolder"
-
-local AutoAimEnabled=false
-local AutoAimRange=10
 
 -- Aim variables
 local AimBotEnabled=false
@@ -65,8 +61,6 @@ UIS.InputBegan:Connect(function(input, gp)
     if k==Enum.KeyCode.D then moveKeys.D=true end
     if k==Enum.KeyCode.Space then moveKeys.Space=true end
     if k==Enum.KeyCode.LeftShift then moveKeys.Shift=true end
-    -- AutoAim toggle via R
-    if k==Enum.KeyCode.R then AutoAimEnabled=not AutoAimEnabled end
 end)
 UIS.InputEnded:Connect(function(input, gp)
     if gp then return end
@@ -107,73 +101,45 @@ RunService.RenderStepped:Connect(function()
     -- MaxZoomCamera
     if maxZoomEnabled then cam.CameraType=Enum.CameraType.Custom end
 
-    -- AutoAim
-    if AutoAimEnabled and hrp then
+    -- AimBot
+    if AimBotEnabled and hrp then
+        local closest
+        local minDist = AimRange
         for _,p in pairs(game.Players:GetPlayers()) do
             if p~=player and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
                 local target = p.Character.HumanoidRootPart
-                if (target.Position - hrp.Position).Magnitude <= AutoAimRange then
-                    cam.CFrame = CFrame.new(cam.CFrame.Position, target.Position)
-                    mouse1click()
-                    AutoAimEnabled=false
-                    break
+                local dist = (target.Position - hrp.Position).Magnitude
+                if dist <= minDist then
+                    minDist = dist
+                    closest = target
                 end
             end
         end
-    end
-
-    -- AimBot
-    if AimBotEnabled and hrp then
-        for _,p in pairs(game.Players:GetPlayers()) do
-            if p~=player and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
-                local target = p.Character.HumanoidRootPart
-                if (target.Position - hrp.Position).Magnitude <= AimRange then
-                    cam.CFrame = CFrame.new(cam.CFrame.Position, target.Position)
-                    mouse1click()
-                    break
-                end
-            end
+        if closest then
+            local newCFrame = CFrame.new(cam.CFrame.Position, closest.Position)
+            cam.CFrame = cam.CFrame:Lerp(newCFrame, 0.2) -- 滑らかに吸い付かない
         end
     end
 
     -- Silent Aim
     if SilentAimEnabled and hrp then
+        local closest
+        local minDist = AimRange
         for _,p in pairs(game.Players:GetPlayers()) do
             if p~=player and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
                 local target = p.Character.HumanoidRootPart
-                if (target.Position - hrp.Position).Magnitude <= AimRange then
-                    cam.CFrame = CFrame.new(cam.CFrame.Position, target.Position)
-                    -- Flingライン処理: 実際のゲーム依存
-                    break
+                local dist = (target.Position - hrp.Position).Magnitude
+                if dist <= minDist then
+                    minDist = dist
+                    closest = target
                 end
             end
         end
-    end
-
-    -- ESP
-    if ESPEnabled then
-        for _,p in pairs(game.Players:GetPlayers()) do
-            if p~=player and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
-                if not ESPFolder:FindFirstChild(p.Name) then
-                    local billboard = Instance.new("BillboardGui")
-                    billboard.Name=p.Name
-                    billboard.Adornee=p.Character.HumanoidRootPart
-                    billboard.Size=UDim2.new(0,50,0,50)
-                    billboard.AlwaysOnTop=true
-                    local text = Instance.new("TextLabel", billboard)
-                    text.Size=UDim2.new(1,0,1,0)
-                    text.BackgroundTransparency=1
-                    text.Text=p.Name
-                    text.TextColor3=Color3.new(1,0,0)
-                    text.TextScaled=true
-                    billboard.Parent=ESPFolder
-                end
-            else
-                if ESPFolder:FindFirstChild(p.Name) then ESPFolder[p.Name]:Destroy() end
-            end
+        if closest then
+            local newCFrame = CFrame.new(cam.CFrame.Position, closest.Position)
+            cam.CFrame = cam.CFrame:Lerp(newCFrame, 0.2)
+            -- Fling用処理はゲーム依存
         end
-    else
-        ESPFolder:ClearAllChildren()
     end
 end)
 
@@ -212,17 +178,15 @@ end)
 
 -- ===== Rayfield UI =====
 -- Player Tab
-MainTab:CreateToggle({Name="Fly", CurrentValue=false, Callback=function(v) flying=v end})
-MainTab:CreateSlider({Name="Fly Speed", Range={10,200}, Increment=1, CurrentValue=FlySpeed, Callback=function(v) FlySpeed=v end})
-MainTab:CreateToggle({Name="Noclip", CurrentValue=false, Callback=function(v) noclip=v end})
-MainTab:CreateToggle({Name="Infinity Jump", CurrentValue=false, Callback=function(v) infinityJump=v end})
-MainTab:CreateToggle({Name="WalkLegArmLock", CurrentValue=false, Callback=function(v) walkLock=v end})
-MainTab:CreateToggle({Name="SpeedBoost", CurrentValue=false, Callback=function(v) speedBoost=v end})
-MainTab:CreateSlider({Name="FOV", Range={60,120}, Increment=1, CurrentValue=FOV, Callback=function(v) FOV=v end})
-MainTab:CreateToggle({Name="MaxZoomCamera", CurrentValue=false, Callback=function(v) maxZoomEnabled=v end})
-MainTab:CreateToggle({Name="ESP", CurrentValue=false, Callback=function(v) ESPEnabled=v end})
-MainTab:CreateToggle({Name="AutoAim", CurrentValue=false, Callback=function(v) AutoAimEnabled=v end})
-MainTab:CreateSlider({Name="AutoAim Range", Range={1,50}, Increment=1, CurrentValue=AutoAimRange, Callback=function(v) AutoAimRange=v end})
+PlayerTab:CreateToggle({Name="Fly", CurrentValue=false, Callback=function(v) flying=v end})
+PlayerTab:CreateSlider({Name="Fly Speed", Range={10,200}, Increment=1, CurrentValue=FlySpeed, Callback=function(v) FlySpeed=v end})
+PlayerTab:CreateToggle({Name="Noclip", CurrentValue=false, Callback=function(v) noclip=v end})
+PlayerTab:CreateToggle({Name="Infinity Jump", CurrentValue=false, Callback=function(v) infinityJump=v end})
+PlayerTab:CreateToggle({Name="WalkLegArmLock", CurrentValue=false, Callback=function(v) walkLock=v end})
+PlayerTab:CreateToggle({Name="SpeedBoost", CurrentValue=false, Callback=function(v) speedBoost=v end})
+PlayerTab:CreateSlider({Name="FOV", Range={60,120}, Increment=1, CurrentValue=FOV, Callback=function(v) FOV=v end})
+PlayerTab:CreateToggle({Name="MaxZoomCamera", CurrentValue=false, Callback=function(v) maxZoomEnabled=v end})
+PlayerTab:CreateToggle({Name="ESP", CurrentValue=false, Callback=function(v) ESPEnabled=v end})
 
 -- Visual Tab
 VisualTab:CreateToggle({Name="Cloud Color Toggle", CurrentValue=false, Callback=function(v) cloudToggle=v end})
