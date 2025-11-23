@@ -1,5 +1,5 @@
 -- ====================================================================
--- SplashHub: Rayfield URL更新＆最終版 (自動実行 + 最新URL)
+-- SplashHub: Rayfield UI 統合スクリプト (機能連動版)
 -- ====================================================================
 local P = game:GetService("Players").LocalPlayer;
 local UIS = game:GetService("UserInputService");
@@ -7,9 +7,30 @@ local RS = game:GetService("RunService");
 local WS = game:GetService("Workspace");
 local ReplicatedStorage = game:GetService("ReplicatedStorage");
 
--- ----------------------------------------------------
--- ★ RayfieldのURLを更新
--- ----------------------------------------------------
+-- UI変数とゲーム変数
+local WALK_SPEED = 32;
+local FLY_SPEED = 40;
+local MAX_FAILURES = 5;
+local activeBindings = {}; 
+local grabDetectionConnection = nil;
+local failureCount = 0;
+local isFlying = false;
+local isLineExtending = false;
+local currentLinePart = nil;
+local bodyVelocity = nil;
+
+-- 掴み回避に必要な定数とRemoteEvent
+local GRAB_DETECTION_OBJECTS = {"BodyPosition", "BodyVelocity", "BodyGyro", "AlignOrientation", "AlignPosition", "Attachment"};
+local GRAB_EVENTS = {
+    "GrabEvents.ExtendGrabLine", 
+    "CharacterEvents.Look",
+    "GrabEvents.GrabTarget",
+    "GrabEvents.ReleaseGrab",
+};
+local remoteGrab = ReplicatedStorage:WaitForChild("GrabEvents", 5) and ReplicatedStorage.GrabEvents:WaitForChild("GrabTarget", 5);
+local remoteRelease = ReplicatedStorage:WaitForChild("GrabEvents", 5) and ReplicatedStorage.GrabEvents:WaitForChild("ReleaseGrab", 5);
+
+-- Rayfieldの読み込み
 local RAYFIELD_LOADER_URL = "https://sirius.menu/rayfield" 
 local Rayfield = nil
 local success, result = pcall(function()
@@ -18,32 +39,13 @@ local success, result = pcall(function()
 end)
 
 if not Rayfield or not success then
-    warn("Rayfieldの読み込みに失敗しました。UIは表示されませんが、飛行と防御機能は自動実行されます。")
-else
-    print("Rayfieldの読み込みに成功しました。UIが表示されるはずです。")
+    warn("Rayfieldの読み込みに失敗しました。スクリプトを中断します。")
+    return
 end
 
-local WALK_SPEED = 32;
-local FLY_SPEED = 40;
-local MAX_FAILURES = 5;
-local GRAB_DETECTION_OBJECTS = {"BodyPosition", "BodyVelocity", "BodyGyro", "AlignOrientation", "AlignPosition", "Attachment"};
-local GRAB_EVENTS = {
-    "GrabEvents.ExtendGrabLine", 
-    "CharacterEvents.Look",
-    "GrabEvents.GrabTarget",
-    "GrabEvents.ReleaseGrab",
-};
-
-local remoteGrab = ReplicatedStorage:WaitForChild("GrabEvents", 5) and ReplicatedStorage.GrabEvents:WaitForChild("GrabTarget", 5);
-local remoteRelease = ReplicatedStorage:WaitForChild("GrabEvents", 5) and ReplicatedStorage.GrabEvents:WaitForChild("ReleaseGrab", 5);
-
-local isFlying = false;
-local isLineExtending = false;
-local currentLinePart = nil;
-local bodyVelocity = nil;
-local activeBindings = {}; 
-local grabDetectionConnection = nil;
-local failureCount = 0;
+-- ----------------------------------------------------
+-- 🎮 機能ロジック (以前の安定版から継承)
+-- ----------------------------------------------------
 
 -- ユーティリティ関数
 local function bindToRenderStep(name, priority, func)
@@ -59,55 +61,12 @@ local function unbindFromRenderStep(name)
     end
 end
 
-local function cleanupBindings()
-    stopFlying(true) 
-    stopLineExtension(true)
-    if grabDetectionConnection and grabDetectionConnection.Connected then
-        grabDetectionConnection:Disconnect();
-        grabDetectionConnection = nil;
-    end
-    for name, _ in pairs(activeBindings) do
-        RS:UnbindFromRenderStep(name)
-        activeBindings[name] = nil
+-- 通知機能 (簡略化)
+local function showNotification(message)
+    if Rayfield.Notify then
+        Rayfield.Notify({Title = "SplashHub", Content = message, Duration = 3})
     end
 end
-
--- 通知機能
-local function showNotification(message, color)
-    if not P.PlayerGui or P.Character and not P.Character:FindFirstChildOfClass("Humanoid") then return end
-    
-    local G = Instance.new("ScreenGui");
-    if not pcall(function() G.Parent = P.PlayerGui end) then G:Destroy(); return end 
-    G.Name = "SplashHubNotify";
-
-    local NF = Instance.new("Frame");
-    local T = Instance.new("TextLabel");
-
-    pcall(function()
-        NF.Parent = G;
-        NF.Size = UDim2.new(0, 300, 0, 50);
-        NF.Position = UDim2.new(1, 0, 1, -50);
-        NF.BackgroundColor3 = color or Color3.new(0.2, 0.2, 0.2);
-        NF.BackgroundTransparency = 0.1;
-
-        T.Parent = NF;
-        T.Size = UDim2.new(1, 0, 1, 0);
-        T.BackgroundTransparency = 1;
-        T.Text = message;
-        T.TextColor3 = Color3.fromRGB(255, 255, 255);
-        T.Font = Enum.Font.SourceSansBold;
-        T.TextSize = 18;
-    end);
-
-    pcall(NF.TweenPosition, NF, UDim2.new(1, -310, 1, -50), "Out", "Quart", 0.3, true);
-
-    spawn(function()
-        wait(3);
-        pcall(NF.TweenPosition, NF, UDim2.new(1, 0, 1, -50), "In", "Quart", 0.3, true);
-        wait(0.3);
-        if G and G.Parent then pcall(G.Destroy, G) end;
-    end);
-end;
 
 -- 掴み/防御RemoteEventの無効化（Hook）
 local function hookGrabEvents()
@@ -129,19 +88,17 @@ local function hookGrabEvents()
             end)
         end
     end
-    showNotification("🔒 全ての防御イベントをフックしました。", Color3.fromRGB(0, 255, 255));
+    showNotification("全ての防御イベントをフックしました。")
 end
-
 
 -- Line距離制限解除機能のロジック
 local function startLineExtension()
     if isLineExtending then return end;
 
     local Root = P.Character and P.Character:FindFirstChild("HumanoidRootPart");
-    if not Root then showNotification("エラー: ラインの起点が見つかりません。", Color3.fromRGB(255, 0, 0)); return end;
+    if not Root then showNotification("エラー: ラインの起点が見つかりません。"); return end;
 
     isLineExtending = true;
-    showNotification("Line拡張 ON (クリックで掴み)", Color3.fromRGB(150, 255, 150));
 
     currentLinePart = Instance.new("Part");
     pcall(function()
@@ -168,11 +125,11 @@ local function startLineExtension()
             currentLinePart.CFrame = CFrame.new(startPos, targetPos) * CFrame.new(0, 0, -distance / 2);
         end)
     end)
+    showNotification("Line拡張 ON: マウスで掴み、右クリックでリリース")
 end
 
-local function stopLineExtension(force)
-    if not isLineExtending and not force then return end
-
+local function stopLineExtension()
+    if not isLineExtending then return end
     isLineExtending = false;
     unbindFromRenderStep("LineExtension");
 
@@ -180,12 +137,10 @@ local function stopLineExtension(force)
         pcall(currentLinePart.Destroy, currentLinePart);
         currentLinePart = nil;
     end
-    
-    if not force then showNotification("Line拡張 OFF", Color3.fromRGB(255, 150, 150)); end
+    showNotification("Line拡張 OFF")
 end
 
-
--- ★ 強制掴み実行ロジック (変更なし)
+-- 強制掴み実行ロジック (UIトグルとは独立して実行)
 UIS.InputBegan:Connect(function(input, gameProcessedEvent)
     if gameProcessedEvent or not isLineExtending or not remoteGrab or not remoteRelease then return end
 
@@ -194,32 +149,28 @@ UIS.InputBegan:Connect(function(input, gameProcessedEvent)
         local forcedTargetPos = mouseRay.Origin + mouseRay.Direction * 5000; 
         
         pcall(remoteGrab.FireServer, remoteGrab, forcedTargetPos, forcedTargetPos);
-        showNotification("💥 遠距離掴み信号を強制送信！", Color3.fromRGB(255, 255, 0)); 
-
     elseif input.UserInputType == Enum.UserInputType.MouseButton2 then
         pcall(remoteRelease.FireServer, remoteRelease);
-        showNotification("🖐️ 掴みリリース信号を強制送信！", Color3.fromRGB(150, 150, 255));
     end
 end)
 
 
 -- 飛行機能
-local function stopFlying(force)
-    if not isFlying and not force then return end
+local function stopFlying()
+    if not isFlying then return end
     isFlying = false; failureCount = 0;
     unbindFromRenderStep("AntiAC");
     local H = P.Character and P.Character:FindFirstChildOfClass("Humanoid");
     if H and H.Parent then pcall(function() H.WalkSpeed = WALK_SPEED end) end;
     if bodyVelocity and bodyVelocity.Parent then pcall(bodyVelocity.Destroy, bodyVelocity); bodyVelocity = nil end;
-    
-    if not force then showNotification("SplashHub: 飛行 OFF", Color3.fromRGB(255, 100, 100)); end
-end;
+    showNotification("飛行 OFF")
+}
 
 local function startFlying()
     if isFlying then return end;
     local H = P.Character and P.Character:FindFirstChildOfClass("Humanoid");
     local Root = P.Character and P.Character:FindFirstChild("HumanoidRootPart");
-    if not H or not Root or not Root.Parent then showNotification("エラー: キャラクターが見つかりません。", Color3.fromRGB(255, 0, 0)); return end;
+    if not H or not Root or not Root.Parent then showNotification("エラー: キャラクターが見つかりません。"); return end;
     isFlying = true;
     pcall(function() H.WalkSpeed = 0 end)
     
@@ -235,12 +186,12 @@ local function startFlying()
             pcall(function() H.WalkSpeed = 0 end)
             if H.WalkSpeed ~= 0 then
                 failureCount = failureCount + 1;
-                if failureCount >= MAX_FAILURES then showNotification("アンチチート検出。飛行を解除します。", Color3.fromRGB(255, 50, 50)); stopFlying(); return end
+                if failureCount >= MAX_FAILURES then showNotification("アンチチート検出。飛行を解除します。"); stopFlying(); return end
             end
         else failureCount = 0; end
         if bodyVelocity and not bodyVelocity.Parent then pcall(function() bodyVelocity.Parent = Root end); end;
     end);
-    showNotification("SplashHub: 飛行 ON", Color3.fromRGB(100, 255, 100));
+    showNotification("飛行 ON")
 }
 
 local function updateFlyMovement()
@@ -272,19 +223,17 @@ local function updateAntiRagdoll()
     end
 end;
 
-
 local function setupGrabDetection(rootPart)
     if grabDetectionConnection and grabDetectionConnection.Connected then grabDetectionConnection:Disconnect(); end
     grabDetectionConnection = rootPart.ChildAdded:Connect(function(child)
         for _, name in pairs(GRAB_DETECTION_OBJECTS) do
             if child.ClassName == name and child.Parent == rootPart then
-                showNotification("⛔ 掴みオブジェクト挿入検出！脱出を試みます。", Color3.fromRGB(255, 150, 0));
+                showNotification("掴みオブジェクト挿入検出！脱出を試みます。");
                 pcall(child.Destroy, child);
             end
         end
     end);
 end
-
 
 local function disableTargetScript()
     local playerScripts = P:FindFirstChild("PlayerScripts");
@@ -295,105 +244,120 @@ local function disableTargetScript()
     end
 end
 
--- Rayfield UI構築
-local function createRayfieldUI()
-    if not Rayfield then return end
-    
-    local Window = Rayfield:CreateWindow({
-        Name = "SplashHub Rayfield",
-        LoadingTitle = "Loading SplashHub",
-        LoadingSubtitle = "Injecting Modules",
-        ConfigurationSaving = {
-            Enabled = true,
-            FolderName = nil,
-            FileName = "RayfieldSplashHub"
-        },
-        Keybind = Enum.KeyCode.RightControl
-    })
-
-    local MainTab = Window:CreateTab("Player & Flight", 4483862788)
-    local ExploitTab = Window:CreateTab("Grab Bypass", 4483862788)
-
-    local FlightSection = MainTab:CreateSection("Movement")
-    FlightSection:CreateToggle({
-        Name = "Infinite Flight",
-        CurrentValue = isFlying,
-        Flag = "InfiniteFlightFlag",
-        Callback = function(toggled)
-            if toggled then
-                startFlying()
-            else
-                stopFlying()
-            end
-        end,
-    })
-
-    FlightSection:CreateSlider({
-        Name = "Fly Speed",
-        Range = {1, 150},
-        Increment = 5,
-        Suffix = "Studs/s",
-        CurrentValue = FLY_SPEED,
-        Flag = "FlySpeedFlag",
-        Callback = function(value)
-            FLY_SPEED = value
-        end,
-    })
-
-    local GrabSection = ExploitTab:CreateSection("Line Exploitation")
-    GrabSection:CreateToggle({
-        Name = "Infinite Grab Distance",
-        CurrentValue = isLineExtending,
-        Flag = "InfiniteGrabFlag",
-        Callback = function(toggled)
-            if toggled then
-                startLineExtension()
-            else
-                stopLineExtension()
-            end
-        end,
-    })
-
-    local AntiCheatSection = MainTab:CreateSection("Anti-Detection")
-    AntiCheatSection:CreateToggle({
-        Name = "Anti-Ragdoll (Auto-Clear)",
-        CurrentValue = true,
-        Flag = "AntiRagdollFlag",
-        Callback = function(toggled)
-            -- ロジックは常に実行されています
-        end,
-    })
-    
-    showNotification("Rayfield UI ロード成功！", Color3.fromRGB(0, 255, 0));
-end
-
--- メイン初期化ロジック
 local function setupCharacter(character)
-    cleanupBindings() 
-    
     local H = character:FindFirstChildOfClass("Humanoid");
     if H then pcall(function() H.WalkSpeed = WALK_SPEED end) end;
 
     local Root = character:FindFirstChild("HumanoidRootPart");
     if Root then setupGrabDetection(Root) end;
 
+    -- 飛行移動ループとアンチラグドールを再バインド
     bindToRenderStep("FlyMovement", Enum.RenderPriority.Character.Value, updateFlyMovement);
     bindToRenderStep("AntiRagdoll", Enum.RenderPriority.Camera.Value - 1, updateAntiRagdoll);
-    
-    -- UIロードの成否にかかわらず、飛行機能を自動でONにする
-    startFlying() 
 end
 
+-- ----------------------------------------------------
+-- 🎨 Rayfield UI 定義
+-- ----------------------------------------------------
+
+local Window = Rayfield:CreateWindow({
+    Name = "ぱるの超絶UI",
+    LoadingTitle = "読み込み中…",
+    LoadingSubtitle = "Rayfield v3",
+    ConfigurationSaving = {
+        Enabled = true,
+        FolderName = "MyAwesomeUI"
+    }
+})
+
+local MainTab = Window:CreateTab("メイン", 4483362458)
+local FlightSection = MainTab:CreateSection("飛行")
+
+FlightSection:CreateToggle({
+    Name = "Infinite Flight (飛行)",
+    CurrentValue = false,
+    Flag = "InfiniteFlightFlag",
+    Callback = function(toggled)
+        if toggled then
+            startFlying()
+        else
+            stopFlying()
+        end
+    end,
+})
+
+FlightSection:CreateSlider({
+    Name = "Fly Speed",
+    Range = {1, 150},
+    Increment = 5,
+    Suffix = "Studs/s",
+    CurrentValue = FLY_SPEED,
+    Flag = "FlySpeedFlag",
+    Callback = function(value)
+        FLY_SPEED = value
+        showNotification("飛行速度を "..value.." に設定")
+    end,
+})
+
+local BypassSection = MainTab:CreateSection("回避 & 保護")
+
+BypassSection:CreateToggle({
+    Name = "Anti-Ragdoll (自動解除)",
+    CurrentValue = true, -- デフォルトでONに推奨
+    Flag = "AntiRagdollFlag",
+    Callback = function(toggled)
+        -- ロジックは常にRunServiceにバインドされているため、トグルはUI表示用として扱う。
+        showNotification("アンチラグドールは常に有効です。")
+    end,
+})
+
+BypassSection:CreateToggle({
+    Name = "Grab Hook (掴み無効化)",
+    CurrentValue = true, -- デフォルトでONに推奨
+    Flag = "GrabHookFlag",
+    Callback = function(toggled)
+        if toggled then
+            hookGrabEvents()
+        else
+            -- UI上ではOFFにしても、一度フックすると解除はできないため、注意喚起のみ
+            showNotification("RemoteEventのフックは解除できません。", 3)
+        end
+    end,
+})
+
+local GrabSection = MainTab:CreateSection("ライン操作")
+
+GrabSection:CreateToggle({
+    Name = "Infinite Grab Distance (ライン拡張)",
+    CurrentValue = isLineExtending,
+    Flag = "InfiniteGrabFlag",
+    Callback = function(toggled)
+        if toggled then
+            startLineExtension()
+        else
+            stopLineExtension()
+        end
+    end,
+})
+
+
+-- ----------------------------------------------------
+-- ⚙️ 初期化シーケンス
+-- ----------------------------------------------------
 local function initialize()
+    -- キャラクターのロードを待つ
     local character = P.Character or P.CharacterAdded:Wait()
     
+    -- 初回起動時に掴みイベントをフックし、ゲームスクリプトを無効化
     hookGrabEvents();
     disableTargetScript();
     
-    createRayfieldUI();
-    
+    -- キャラクターがリスポーンするたびにセットアップを実行
     P.CharacterAdded:Connect(setupCharacter);
     setupCharacter(character);
+    
+    -- 初回ロード完了通知
+    showNotification("ぱるの超絶UI 起動完了！", 5)
 end
 
 pcall(initialize)
