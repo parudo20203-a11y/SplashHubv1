@@ -1,8 +1,4 @@
--- Rayfield 読み込み
-local success, Rayfield = pcall(function()
-    return loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
-end)
-if not success or not Rayfield then return warn("Rayfieldの読み込みに失敗") end
+local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
 
 local Window = Rayfield:CreateWindow({
     Name = "Splash Hub v1",
@@ -12,222 +8,140 @@ local Window = Rayfield:CreateWindow({
 })
 
 local MainTab = Window:CreateTab("Player", 4483362458)
-local VisualTab = Window:CreateTab("Visual", 4483362458) -- Playerと同じアイコン
+local VisualTab = Window:CreateTab("Visual", 4483362458)
 
--- Services & Player
+-- Services
 local player = game.Players.LocalPlayer
-local cam = workspace.CurrentCamera
 local UIS = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 local Lighting = game:GetService("Lighting")
+local cam = workspace.CurrentCamera
 
--- Player Variables
+-- Character
 local char, hrp, hum
 local normalWalkSpeed = 16
-local function updateCharacter(c)
+local function updateChar(c)
     char = c
     hrp = c:FindFirstChild("HumanoidRootPart") or c.PrimaryPart
     hum = c:FindFirstChild("Humanoid")
     if hum then normalWalkSpeed = hum.WalkSpeed end
 end
-player.CharacterAdded:Connect(updateCharacter)
-if player.Character then updateCharacter(player.Character) end
+player.CharacterAdded:Connect(updateChar)
+if player.Character then updateChar(player.Character) end
 
 -- ===== Fly =====
-local flying = false
-local FlySpeed = 50
+local flying, FlySpeed = false, 50
 local moveKeys = {W=false, A=false, S=false, D=false, Space=false, Shift=false}
 UIS.InputBegan:Connect(function(input, gp)
     if gp then return end
     local k = input.KeyCode
-    if k == Enum.KeyCode.W then moveKeys.W = true end
-    if k == Enum.KeyCode.A then moveKeys.A = true end
-    if k == Enum.KeyCode.S then moveKeys.S = true end
-    if k == Enum.KeyCode.D then moveKeys.D = true end
-    if k == Enum.KeyCode.Space then moveKeys.Space = true end
-    if k == Enum.KeyCode.LeftShift then moveKeys.Shift = true end
+    if k == Enum.KeyCode.W then moveKeys.W=true end
+    if k == Enum.KeyCode.A then moveKeys.A=true end
+    if k == Enum.KeyCode.S then moveKeys.S=true end
+    if k == Enum.KeyCode.D then moveKeys.D=true end
+    if k == Enum.KeyCode.Space then moveKeys.Space=true end
+    if k == Enum.KeyCode.LeftShift then moveKeys.Shift=true end
 end)
 UIS.InputEnded:Connect(function(input, gp)
     if gp then return end
     local k = input.KeyCode
-    if k == Enum.KeyCode.W then moveKeys.W = false end
-    if k == Enum.KeyCode.A then moveKeys.A = false end
-    if k == Enum.KeyCode.S then moveKeys.S = false end
-    if k == Enum.KeyCode.D then moveKeys.D = false end
-    if k == Enum.KeyCode.Space then moveKeys.Space = false end
-    if k == Enum.KeyCode.LeftShift then moveKeys.Shift = false end
+    if k == Enum.KeyCode.W then moveKeys.W=false end
+    if k == Enum.KeyCode.A then moveKeys.A=false end
+    if k == Enum.KeyCode.S then moveKeys.S=false end
+    if k == Enum.KeyCode.D then moveKeys.D=false end
+    if k == Enum.KeyCode.Space then moveKeys.Space=false end
+    if k == Enum.KeyCode.LeftShift then moveKeys.Shift=false end
 end)
 RunService.RenderStepped:Connect(function()
     if flying and hrp then
         local dir = Vector3.zero
         local cf = cam.CFrame
-        if moveKeys.W then dir += cf.LookVector end
-        if moveKeys.S then dir -= cf.LookVector end
-        if moveKeys.A then dir -= cf.RightVector end
-        if moveKeys.D then dir += cf.RightVector end
-        if moveKeys.Space then dir += Vector3.yAxis end
-        if moveKeys.Shift then dir -= Vector3.yAxis end
-        hrp.Velocity = (dir.Magnitude > 0 and dir.Unit * FlySpeed) or Vector3.zero
+        if moveKeys.W then dir+=cf.LookVector end
+        if moveKeys.S then dir-=cf.LookVector end
+        if moveKeys.A then dir-=cf.RightVector end
+        if moveKeys.D then dir+=cf.RightVector end
+        if moveKeys.Space then dir+=Vector3.yAxis end
+        if moveKeys.Shift then dir-=Vector3.yAxis end
+        hrp.Velocity=(dir.Magnitude>0 and dir.Unit*FlySpeed) or Vector3.zero
     end
 end)
 
 -- ===== Noclip =====
-local noclip = false
+local noclip=false
 RunService.Stepped:Connect(function()
     if noclip and char then
-        for _, v in pairs(char:GetDescendants()) do
-            if v:IsA("BasePart") then v.CanCollide = false end
+        for _,v in pairs(char:GetDescendants()) do
+            if v:IsA("BasePart") then v.CanCollide=false end
         end
     end
 end)
 
 -- ===== Infinity Jump =====
-local infinityJump = false
+local infinityJump=false
 UIS.JumpRequest:Connect(function()
     if infinityJump and hum then hum:ChangeState(Enum.HumanoidStateType.Jumping) end
 end)
 
 -- ===== WalkLegArmLock =====
-local walkLock = false
+local walkLock=false
 RunService.RenderStepped:Connect(function()
     if walkLock and hum then
-        for _, track in pairs(hum:GetPlayingAnimationTracks()) do track:Stop() end
+        for _,track in pairs(hum:GetPlayingAnimationTracks()) do track:Stop() end
     end
 end)
 
 -- ===== SpeedBoost =====
-local speedBoost = false
-local boostAmount = 10
+local speedBoost=false
+local boostAmount=10
 RunService.RenderStepped:Connect(function()
-    if hum then
-        hum.WalkSpeed = (speedBoost and (normalWalkSpeed + boostAmount)) or normalWalkSpeed
-    end
+    if hum then hum.WalkSpeed=(speedBoost and (normalWalkSpeed+boostAmount)) or normalWalkSpeed end
 end)
 
--- ===== FOV / MaxZoomCamera =====
-local currentFOV = 70
-local maxZoomEnabled = false
-cam.FieldOfView = currentFOV
+-- ===== FOV =====
+local FOV=70
 RunService.RenderStepped:Connect(function()
-    cam.FieldOfView = currentFOV
-    if maxZoomEnabled then cam.CameraType = Enum.CameraType.Custom end
+    cam.FieldOfView=FOV
 end)
 
--- ===== ESP =====
-local espEnabled = false
-local espBoxes = {}
-local function getPrimaryPart(c)
-    return c:FindFirstChild("HumanoidRootPart") or c:FindFirstChild("Head") or c:FindFirstChild("Torso") or c.PrimaryPart
-end
-local function createESP(target)
-    if espBoxes[target] then return end
-    local box = Drawing.new("Square")
-    box.Color = Color3.new(1,0,0)
-    box.Thickness = 2
-    box.Transparency = 1
-    box.Visible = false
-    box.Filled = false
-    espBoxes[target] = box
-end
+-- ===== MaxZoomCamera =====
+local maxZoomEnabled=false
 RunService.RenderStepped:Connect(function()
-    if espEnabled then
-        for _, p in pairs(game.Players:GetPlayers()) do
-            if p ~= player and p.Character and getPrimaryPart(p.Character) then
-                createESP(p)
-                local part = getPrimaryPart(p.Character)
-                local pos, onScreen = cam:WorldToViewportPoint(part.Position)
-                local box = espBoxes[p]
-                if onScreen then
-                    box.Position = Vector2.new(pos.X-10,pos.Y-10)
-                    box.Size = Vector2.new(20,20)
-                    box.Visible = true
-                else box.Visible = false end
-            end
-        end
-    else
-        for _, box in pairs(espBoxes) do box.Visible=false end
-    end
+    if maxZoomEnabled then cam.CameraType=Enum.CameraType.Custom end
 end)
 
--- ===== AutoAim =====
-local autoAim = false
-local autoAimActive = false
-local aimRadius = 10
-local function getAimPart(c)
-    return c:FindFirstChild("HumanoidRootPart") or c:FindFirstChild("Head") or c:FindFirstChild("Torso") or c.PrimaryPart
-end
-local function getClosestPlayer()
-    if not hrp then return nil end
-    local closestDist = math.huge
-    local closestPlayer = nil
-    for _, p in pairs(game.Players:GetPlayers()) do
-        if p ~= player and p.Character and getAimPart(p.Character) then
-            local dist = (getAimPart(p.Character).Position - hrp.Position).Magnitude
-            if dist < closestDist and dist <= aimRadius then
-                closestDist = dist
-                closestPlayer = p
-            end
-        end
-    end
-    return closestPlayer
-end
-UIS.InputBegan:Connect(function(input, gp)
-    if gp then return end
-    if input.KeyCode == Enum.KeyCode.R then
-        autoAim = not autoAim
-        autoAimActive = autoAim
-    end
-end)
+-- ===== Visual: Cloud & All Part Color =====
+local cloudToggle=false
+local cloudColor=Color3.fromRGB(135,206,235)
+local allPartToggle=false
+local allPartColor=Color3.fromRGB(255,255,255)
+
+-- 空の Sky オブジェクトを作成
+local sky = workspace:FindFirstChildOfClass("Sky") or Instance.new("Sky", workspace)
+
 RunService.RenderStepped:Connect(function()
-    if autoAimActive and hrp and cam then
-        local target = getClosestPlayer()
-        if target then
-            cam.CameraType = Enum.CameraType.Custom
-            local targetPos = getAimPart(target.Character).Position
-            cam.CFrame = CFrame.new(cam.CFrame.Position, targetPos)
-            local tool = player.Character and player.Character:FindFirstChildOfClass("Tool")
-            if tool and tool:FindFirstChild("Activate") then
-                tool:Activate()
-                autoAimActive=false
-                autoAim=false
-            end
+    if cloudToggle then
+        -- 空の色を変更
+        Lighting.OutdoorAmbient = cloudColor
+        sky.SkyboxBk=""; sky.SkyboxDn=""; sky.SkyboxFt=""; sky.SkyboxLf=""; sky.SkyboxRt=""; sky.SkyboxUp=""
+    end
+    if allPartToggle then
+        for _,p in pairs(workspace:GetDescendants()) do
+            if p:IsA("BasePart") then p.Color=allPartColor end
         end
     end
 end)
 
 -- ===== Rayfield UI =====
--- Player Tab
-MainTab:CreateToggle({Name="Fly（ON/OFF）", CurrentValue=false, Callback=function(v) flying=v end})
+MainTab:CreateToggle({Name="Fly", CurrentValue=false, Callback=function(v) flying=v end})
 MainTab:CreateSlider({Name="Fly Speed", Range={10,200}, Increment=1, CurrentValue=FlySpeed, Callback=function(v) FlySpeed=v end})
-MainTab:CreateToggle({Name="Noclip（壁抜け ON/OFF）", CurrentValue=false, Callback=function(v) noclip=v end})
-MainTab:CreateToggle({Name="Infinity Jump（無限ジャンプ ON/OFF）", CurrentValue=false, Callback=function(v) infinityJump=v end})
-MainTab:CreateToggle({Name="ESP（ON/OFF）", CurrentValue=false, Callback=function(v) espEnabled=v end})
-MainTab:CreateToggle({Name="MaxZoomCamera（ON/OFF）", CurrentValue=false, Callback=function(v) maxZoomEnabled=v end})
-MainTab:CreateToggle({Name="WalkLegArmLock（ON/OFF）", CurrentValue=false, Callback=function(v) walkLock=v end})
-MainTab:CreateToggle({Name="SpeedBoost（ON/OFF）", CurrentValue=false, Callback=function(v) speedBoost=v end})
-MainTab:CreateToggle({Name="AutoAim（ON/OFF）", CurrentValue=false, Callback=function(v) autoAim=v autoAimActive=v end})
+MainTab:CreateToggle({Name="Noclip", CurrentValue=false, Callback=function(v) noclip=v end})
+MainTab:CreateToggle({Name="Infinity Jump", CurrentValue=false, Callback=function(v) infinityJump=v end})
+MainTab:CreateToggle({Name="WalkLegArmLock", CurrentValue=false, Callback=function(v) walkLock=v end})
+MainTab:CreateToggle({Name="SpeedBoost", CurrentValue=false, Callback=function(v) speedBoost=v end})
+MainTab:CreateSlider({Name="FOV", Range={70,120}, Increment=1, CurrentValue=FOV, Callback=function(v) FOV=v end})
+MainTab:CreateToggle({Name="MaxZoomCamera", CurrentValue=false, Callback=function(v) maxZoomEnabled=v end})
 
--- Visual Tab
-local cloudColorToggle = false
-local cloudColor = Color3.fromRGB(135,206,235)
-VisualTab:CreateToggle({Name="Cloud Color Toggle", CurrentValue=false, Callback=function(v) cloudColorToggle=v end})
+VisualTab:CreateToggle({Name="Cloud Color Toggle", CurrentValue=false, Callback=function(v) cloudToggle=v end})
 VisualTab:CreateColorPicker({Name="Cloud Color", Default=cloudColor, Callback=function(c) cloudColor=c end})
-
-local allPartColorToggle = false
-local allPartColor = Color3.fromRGB(255,255,255)
-VisualTab:CreateToggle({Name="All Part Color Toggle", CurrentValue=false, Callback=function(v) allPartColorToggle=v end})
+VisualTab:CreateToggle({Name="All Part Color Toggle", CurrentValue=false, Callback=function(v) allPartToggle=v end})
 VisualTab:CreateColorPicker({Name="All Part Color", Default=allPartColor, Callback=function(c) allPartColor=c end})
-
--- RenderStepped 更新
-RunService.RenderStepped:Connect(function()
-    if cloudColorToggle then
-        Lighting.OutdoorAmbient = cloudColor
-    end
-    if allPartColorToggle then
-        for _, p in pairs(workspace:GetDescendants()) do
-            if p:IsA("BasePart") then
-                p.Color = allPartColor
-            end
-        end
-    end
-end)
