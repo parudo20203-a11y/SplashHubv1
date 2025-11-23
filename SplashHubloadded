@@ -20,16 +20,56 @@ local RunService = game:GetService("RunService")
 local char, hrp, hum
 local function updateCharacter(c)
     char = c
-    hrp = char:WaitForChild("HumanoidRootPart")
-    hum = char:WaitForChild("Humanoid")
+    hrp = c:FindFirstChild("HumanoidRootPart") or c.PrimaryPart
+    hum = c:FindFirstChild("Humanoid")
 end
-updateCharacter(player.Character or player.CharacterAdded:Wait())
 player.CharacterAdded:Connect(updateCharacter)
+if player.Character then updateCharacter(player.Character) end
 
 --===== Fly =====--
 local flying = false
 local FlySpeed = 50
 local moveKeys = {W=false, A=false, S=false, D=false, Space=false, Shift=false}
+
+UIS.InputBegan:Connect(function(input, gp)
+    if gp then return end
+    local k = input.KeyCode
+    if k == Enum.KeyCode.W then moveKeys.W = true end
+    if k == Enum.KeyCode.A then moveKeys.A = true end
+    if k == Enum.KeyCode.S then moveKeys.S = true end
+    if k == Enum.KeyCode.D then moveKeys.D = true end
+    if k == Enum.KeyCode.Space then moveKeys.Space = true end
+    if k == Enum.KeyCode.LeftShift then moveKeys.Shift = true end
+end)
+
+UIS.InputEnded:Connect(function(input, gp)
+    if gp then return end
+    local k = input.KeyCode
+    if k == Enum.KeyCode.W then moveKeys.W = false end
+    if k == Enum.KeyCode.A then moveKeys.A = false end
+    if k == Enum.KeyCode.S then moveKeys.S = false end
+    if k == Enum.KeyCode.D then moveKeys.D = false end
+    if k == Enum.KeyCode.Space then moveKeys.Space = false end
+    if k == Enum.KeyCode.LeftShift then moveKeys.Shift = false end
+end)
+
+RunService.RenderStepped:Connect(function()
+    if flying and hrp then
+        local dir = Vector3.zero
+        local cf = cam.CFrame
+        if moveKeys.W then dir += cf.LookVector end
+        if moveKeys.S then dir -= cf.LookVector end
+        if moveKeys.A then dir -= cf.RightVector end
+        if moveKeys.D then dir += cf.RightVector end
+        if moveKeys.Space then dir += Vector3.yAxis end
+        if moveKeys.Shift then dir -= Vector3.yAxis end
+        if dir.Magnitude > 0 then
+            hrp.Velocity = dir.Unit * FlySpeed
+        else
+            hrp.Velocity = Vector3.zero
+        end
+    end
+end)
 
 --===== Noclip =====--
 local noclip = false
@@ -51,44 +91,23 @@ UIS.JumpRequest:Connect(function()
     end
 end)
 
---===== Key Inputs for Fly =====--
-UIS.InputBegan:Connect(function(input, gp)
-    if gp then return end
-    local k = input.KeyCode
-    if k == Enum.KeyCode.W then moveKeys.W = true end
-    if k == Enum.KeyCode.A then moveKeys.A = true end
-    if k == Enum.KeyCode.S then moveKeys.S = true end
-    if k == Enum.KeyCode.D then moveKeys.D = true end
-    if k == Enum.KeyCode.Space then moveKeys.Space = true end
-    if k == Enum.KeyCode.LeftShift then moveKeys.Shift = true end
-end)
-UIS.InputEnded:Connect(function(input, gp)
-    if gp then return end
-    local k = input.KeyCode
-    if k == Enum.KeyCode.W then moveKeys.W = false end
-    if k == Enum.KeyCode.A then moveKeys.A = false end
-    if k == Enum.KeyCode.S then moveKeys.S = false end
-    if k == Enum.KeyCode.D then moveKeys.D = false end
-    if k == Enum.KeyCode.Space then moveKeys.Space = false end
-    if k == Enum.KeyCode.LeftShift then moveKeys.Shift = false end
+--===== WalkLegArmLock =====--
+local walkLock = false
+RunService.RenderStepped:Connect(function()
+    if walkLock and hum then
+        for _, track in pairs(hum:GetPlayingAnimationTracks()) do
+            track:Stop()
+        end
+    end
 end)
 
---===== Fly Movement =====--
+--===== SpeedBoost =====--
+local speedBoost = false
+local normalWalkSpeed = 16
+local boostAmount = 10
 RunService.RenderStepped:Connect(function()
-    if flying and hrp then
-        local dir = Vector3.zero
-        local cf = cam.CFrame
-        if moveKeys.W then dir += cf.LookVector end
-        if moveKeys.S then dir -= cf.LookVector end
-        if moveKeys.A then dir -= cf.RightVector end
-        if moveKeys.D then dir += cf.RightVector end
-        if moveKeys.Space then dir += Vector3.yAxis end
-        if moveKeys.Shift then dir -= Vector3.yAxis end
-        if dir.Magnitude > 0 then
-            hrp.Velocity = dir.Unit * FlySpeed
-        else
-            hrp.Velocity = Vector3.zero
-        end
+    if hum then
+        hum.WalkSpeed = speedBoost and normalWalkSpeed + boostAmount or normalWalkSpeed
     end
 end)
 
@@ -116,33 +135,13 @@ RunService.RenderStepped:Connect(function()
     end
 end)
 
---===== WalkLegArmLock =====--
-local walkLock = false
-RunService.RenderStepped:Connect(function()
-    if walkLock and hum then
-        for _, track in pairs(hum:GetPlayingAnimationTracks()) do
-            track:Stop()
-        end
-    end
-end)
-
---===== SpeedBoost =====--
-local speedBoost = false
-local normalWalkSpeed = 16
-local boostAmount = 10
-RunService.RenderStepped:Connect(function()
-    if hum then
-        if speedBoost then
-            hum.WalkSpeed = normalWalkSpeed + boostAmount
-        else
-            hum.WalkSpeed = normalWalkSpeed
-        end
-    end
-end)
-
 --===== ESP =====--
 local espEnabled = false
 local espBoxes = {}
+local function getPrimaryPart(c)
+    return c:FindFirstChild("HumanoidRootPart") or c.PrimaryPart
+end
+
 local function createESP(target)
     if espBoxes[target] then return end
     local box = Drawing.new("Square")
@@ -153,13 +152,14 @@ local function createESP(target)
     box.Filled = false
     espBoxes[target] = box
 end
+
 RunService.RenderStepped:Connect(function()
     if espEnabled then
         for _, p in pairs(game.Players:GetPlayers()) do
-            if p ~= player and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+            if p ~= player and p.Character and getPrimaryPart(p.Character) then
                 createESP(p)
-                local hrp = p.Character.HumanoidRootPart
-                local pos, onScreen = cam:WorldToViewportPoint(hrp.Position)
+                local part = getPrimaryPart(p.Character)
+                local pos, onScreen = cam:WorldToViewportPoint(part.Position)
                 local box = espBoxes[p]
                 if onScreen then
                     box.Position = Vector2.new(pos.X-10,pos.Y-10)
@@ -180,19 +180,17 @@ end)
 --===== AutoAim =====--
 local autoAim = false
 local autoAimActive = false
-local aimRadius = 10 -- 半径10スタッド
+local aimRadius = 10
 
--- UIトグル
 MainTab:CreateToggle({
-    Name = "AutoAim（ON/OFF）",
-    CurrentValue = false,
-    Callback = function(v)
+    Name="AutoAim（ON/OFF）",
+    CurrentValue=false,
+    Callback=function(v)
         autoAim = v
         autoAimActive = v
     end
 })
 
--- Rキーでトグル
 UIS.InputBegan:Connect(function(input, gp)
     if gp then return end
     if input.KeyCode == Enum.KeyCode.R then
@@ -206,8 +204,8 @@ local function getClosestPlayer()
     local closestPlayer = nil
     if not hrp then return nil end
     for _, p in pairs(game.Players:GetPlayers()) do
-        if p ~= player and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
-            local dist = (p.Character.HumanoidRootPart.Position - hrp.Position).Magnitude
+        if p ~= player and p.Character and getPrimaryPart(p.Character) then
+            local dist = (getPrimaryPart(p.Character).Position - hrp.Position).Magnitude
             if dist < closestDist and dist <= aimRadius then
                 closestDist = dist
                 closestPlayer = p
@@ -221,11 +219,10 @@ RunService.RenderStepped:Connect(function()
     if autoAimActive and hrp and cam then
         local target = getClosestPlayer()
         if target then
-            local targetPos = target.Character.HumanoidRootPart.Position
+            local targetPos = getPrimaryPart(target.Character).Position
             local direction = (targetPos - cam.CFrame.Position).Unit
             cam.CFrame = CFrame.new(cam.CFrame.Position, cam.CFrame.Position + direction)
-
-            local tool = player.Character:FindFirstChildOfClass("Tool")
+            local tool = player.Character and player.Character:FindFirstChildOfClass("Tool")
             if tool and tool:FindFirstChild("Activate") then
                 tool:Activate()
                 autoAimActive = false
