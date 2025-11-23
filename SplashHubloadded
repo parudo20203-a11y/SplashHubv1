@@ -1,0 +1,72 @@
+-- **注意:** ExecutorにRayfieldが組み込まれていない場合は、以下の読み込み行が必要です。
+local Rayfield = loadstring(game:HttpGet("https://raw.githubusercontent.com/Rayfield-Official/Rayfield-Resources/master/Core.lua"))()
+
+-- 1. Windowの作成
+local Window = Rayfield:CreateWindow({
+    Name = "Fling and Grab Enhancer",
+    LoadingTitle = "Initialising Rayfield",
+    LoadingSubtitle = "Loading Modules",
+    ConfigurationSaving = { Enabled = true, FileName = "FlingHubConfig" },
+    Keybind = Enum.KeyCode.RightControl -- 右Ctrlキーで開閉
+})
+
+-- 2. Tabの追加
+local MainTab = Window:CreateTab("Player & Flight", 4483862788) 
+local ExploitTab = Window:CreateTab("Grab Bypass", 4483862788) 
+
+-- 3. Sectionの追加
+local FlightSection = MainTab:CreateSection("Movement")
+local AntiCheatSection = MainTab:CreateSection("Anti-Detection")
+local GrabSection = ExploitTab:CreateSection("Line Exploitation")
+
+-- 4. Elementの配置
+-- 飛行機能
+FlightSection:CreateToggle({
+    Name = "Infinite Flight",
+    CurrentValue = false,
+    Flag = "InfiniteFlightFlag",
+    Callback = function(toggled)
+        if toggled then
+            -- 飛行 ON ロジック
+        else
+            -- 飛行 OFF ロジック
+        end
+    end,
+})
+
+-- 飛行速度調整
+FlightSection:CreateSlider({
+    Name = "Fly Speed",
+    Range = {1, 150},
+    Increment = 5,
+    Suffix = "Studs/s",
+    CurrentValue = 50,
+    Flag = "FlySpeedFlag",
+    Callback = function(value)
+        -- 飛行速度を更新
+    end,
+})
+
+-- Line強制実行機能
+GrabSection:CreateToggle({
+    Name = "Infinite Grab Distance",
+    CurrentValue = false,
+    Flag = "InfiniteGrabFlag",
+    Callback = function(toggled)
+        if toggled then
+            -- Line距離無視 ON ロジック（フック＋強制実行）
+        else
+            -- Line距離無視 OFF ロジック
+        end
+    end,
+})
+
+-- ラグドール解除機能
+AntiCheatSection:CreateToggle({
+    Name = "Anti-Ragdoll (PlatformStand Bypass)",
+    CurrentValue = true,
+    Flag = "AntiRagdollFlag",
+    Callback = function(toggled)
+        -- ラグドール解除ロジックの ON/OFF
+    end,
+})
