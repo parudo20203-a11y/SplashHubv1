@@ -1,94 +1,38 @@
--- UIを一時的に隠す（Rayfield 本体の UI）
-local CoreGui = game:GetService("CoreGui")
-local RayUI = CoreGui:WaitForChild("Rayfield", 10)
+task.wait(2) -- 起動待ち
 
-if RayUI then
-    for _, gui in pairs(RayUI:GetDescendants()) do
-        if gui:IsA("Frame") or gui:IsA("TextLabel") or gui:IsA("ImageLabel") or gui:IsA("ScrollingFrame") then
-            gui.BackgroundTransparency = 1
-            gui.TextTransparency = 1
-            gui.ImageTransparency = 1
-        end
-    end
-end
+local success, err = pcall(function()
 
-task.spawn(function()
-    task.wait(2)
+    -- ライブラリ読み込み
+    local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/xHeptc/Kavo-UI-Library/main/source.lua"))()
+    local Window = Library.CreateLib("Custom Menu", "BloodTheme")
 
-    ----------------------------
-    --  TAB 作成
-    ----------------------------
-    local PlayerTab = Window:CreateTab("Player", 4483362458)
-    local VisualTab = Window:CreateTab("Visual", 4483362458)
-    local AimTab = Window:CreateTab("Aim", 4483362458)
+    -- まず Aim タブ「だけ」作る（ここでは空）
+    local AimTab = Window:NewTab("Aim")
 
-    ----------------------------
-    -- プレイヤー系
-    ----------------------------
-    PlayerTab:CreateToggle({Name="Fly",CurrentValue=false,Callback=function(v)flying=v end})
-    PlayerTab:CreateSlider({Name="Fly Speed",Range={10,200},Increment=1,CurrentValue=FlySpeed,Callback=function(v)FlySpeed=v end})
-    PlayerTab:CreateToggle({Name="Noclip",CurrentValue=false,Callback=function(v)noclip=v end})
-    PlayerTab:CreateToggle({Name="Infinity Jump",CurrentValue=false,Callback=function(v)infinityJump=v end})
-    PlayerTab:CreateToggle({Name="WalkLegArmLock",CurrentValue=false,Callback=function(v)walkLock=v end})
-    PlayerTab:CreateToggle({Name="SpeedBoost",CurrentValue=false,Callback=function(v)speedBoost=v end})
-    PlayerTab:CreateSlider({Name="FOV",Range={60,120},Increment=1,CurrentValue=FOV,Callback=function(v)FOV=v end})
-    PlayerTab:CreateToggle({Name="MaxZoomCamera",CurrentValue=false,Callback=function(v)maxZoomEnabled=v end})
-    PlayerTab:CreateToggle({Name="ESP",CurrentValue=false,Callback=function(v)ESPEnabled=v end})
+    -- ここで Aim セクションを先に作成（まだ描画しない）
+    local AimSection = AimTab:NewSection("Aim Settings")
 
-    ----------------------------
-    -- Visual系
-    ----------------------------
-    VisualTab:CreateToggle({Name="Cloud Color Toggle",CurrentValue=false,Callback=function(v)cloudToggle=v end})
-    VisualTab:CreateColorPicker({Name="Cloud Color",Default=cloudColor,Callback=function(c)cloudColor=c end})
-    VisualTab:CreateToggle({Name="All Part Color Toggle",CurrentValue=false,Callback=function(v)allPartToggle=v end})
-    VisualTab:CreateColorPicker({Name="All Part Color",Default=allPartColor,Callback=function(c)allPartColor=c end})
+    -- ▼ Aim トグルをここで全部生成（これが読み込まれないと Aim タブは描画されない）
+    local togglesLoaded = false
 
-    ----------------------------
-    -- Aim系 (全部読み込まれたら UI を表示)
-    ----------------------------
-    local AimBotToggle = AimTab:CreateToggle({
-        Name="AimBot",
-        CurrentValue=false,
-        Callback=function(v) AimBotEnabled=v end
-    })
+    -- AimBot
+    local AimBotToggle = AimSection:NewToggle("Aimbot", "Auto aim within 10 studs", function(state)
+        getgenv().AimbotEnabled = state
+    end)
 
-    local SilentToggle = AimTab:CreateToggle({
-        Name="Silent Aim",
-        CurrentValue=false,
-        Callback=function(v) SilentAimEnabled=v end
-    })
+    -- Silent Aim
+    local SilentToggle = AimSection:NewToggle("Silent Aim", "Auto lock + auto click", function(state)
+        getgenv().SilentAim = state
+    end)
 
-    local AimRangeSlider = AimTab:CreateSlider({
-        Name="Aim Range",
-        Range={1,50},
-        Increment=1,
-        CurrentValue=AimRange,
-        Callback=function(v) AimRange=v end
-    })
+    -- ここまで来たら「トグル生成完了」
+    togglesLoaded = true
 
-    -----------------------------------
-    -- Aim タブの 3つが生成されたら UI 表示
-    -----------------------------------
-    task.wait(0.5) -- 少し待って完全に Rayfield が構築されるのを待つ
+    -- Aimタブの描画をここで強制更新
+    Library:Notify("Aim Loaded", "Aim settings are now active!", 3)
 
-    if RayUI then
-        for _, gui in pairs(RayUI:GetDescendants()) do
-            if gui:IsA("Frame") then
-                gui.BackgroundTransparency = 0
-            elseif gui:IsA("TextLabel") then
-                gui.TextTransparency = 0
-            elseif gui:IsA("ImageLabel") then
-                gui.ImageTransparency = 0
-            elseif gui:IsA("ScrollingFrame") then
-                gui.ScrollBarImageTransparency = 0
-                gui.BackgroundTransparency = 0
-            end
-        end
-    end
-
-    Window:Notify({
-        Title = "Aim Ready",
-        Content = "Aim タブが完全に読み込まれたよ！",
-        Duration = 3
-    })
 end)
+
+if not success then
+    warn("UI Load Error: "..tostring(err))
+end
