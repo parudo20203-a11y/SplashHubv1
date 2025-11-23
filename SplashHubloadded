@@ -7,11 +7,6 @@ local Window = Rayfield:CreateWindow({
     ConfigurationSaving = {Enabled = true, FolderName = "MyAwesomeUI"}
 })
 
--- ===== Tabs =====
-local PlayerTab = Window:CreateTab("Player", 4483362458)
-local VisualTab = Window:CreateTab("Visual", 4483362458)
-local AimTab = Window:CreateTab("Aim", 4483362458)
-
 -- ===== Services & Character =====
 local player = game.Players.LocalPlayer
 local UIS = game:GetService("UserInputService")
@@ -31,7 +26,7 @@ end
 player.CharacterAdded:Connect(updateChar)
 if player.Character then updateChar(player.Character) end
 
--- ===== Player Vars =====
+-- ===== Vars =====
 local flying, FlySpeed = false, 50
 local moveKeys = {W=false,A=false,S=false,D=false,Space=false,Shift=false}
 local noclip, infinityJump, walkLock, speedBoost, maxZoomEnabled, ESPEnabled = false,false,false,false,false,false
@@ -40,21 +35,15 @@ local FOV=60
 local ESPFolder = Instance.new("Folder", workspace)
 ESPFolder.Name="ESPFolder"
 
--- ===== Aim Vars =====
 local AimBotEnabled, SilentAimEnabled = false, false
 local AimRange = 10
 
--- ===== Visual Vars =====
 local cloudToggle=false
 local cloudColor=Color3.fromRGB(135,206,235)
 local allPartToggle=false
 local allPartColor=Color3.fromRGB(255,255,255)
 local sky = workspace:FindFirstChildOfClass("Sky") or Instance.new("Sky", workspace)
-local atmosphere = Lighting:FindFirstChildOfClass("Atmosphere")
-if not atmosphere then
-    atmosphere = Instance.new("Atmosphere")
-    atmosphere.Parent = Lighting
-end
+local atmosphere = Lighting:FindFirstChildOfClass("Atmosphere") or Instance.new("Atmosphere", Lighting)
 
 -- ===== Input Handling =====
 UIS.InputBegan:Connect(function(input, gp)
@@ -162,7 +151,7 @@ RunService.RenderStepped:Connect(function()
         end
     end
 
-    -- Silent Aim (自動クリック)
+    -- Silent Aim
     if SilentAimEnabled then
         local closest,minDist = nil,AimRange
         for _,p in pairs(game.Players:GetPlayers()) do
@@ -196,27 +185,33 @@ UIS.JumpRequest:Connect(function()
     if infinityJump and hum then hum:ChangeState(Enum.HumanoidStateType.Jumping) end
 end)
 
--- ===== Rayfield UI =====
--- Player Tab
-PlayerTab:CreateToggle({Name="Fly", CurrentValue=false, Callback=function(v) flying=v end})
-PlayerTab:CreateSlider({Name="Fly Speed", Range={10,200}, Increment=1, CurrentValue=FlySpeed, Callback=function(v) FlySpeed=v end})
-PlayerTab:CreateToggle({Name="Noclip", CurrentValue=false, Callback=function(v) noclip=v end})
-PlayerTab:CreateToggle({Name="Infinity Jump", CurrentValue=false, Callback=function(v) infinityJump=v end})
-PlayerTab:CreateToggle({Name="WalkLegArmLock", CurrentValue=false, Callback=function(v) walkLock=v end})
-PlayerTab:CreateToggle({Name="SpeedBoost", CurrentValue=false, Callback=function(v) speedBoost=v end})
-PlayerTab:CreateSlider({Name="FOV", Range={60,120}, Increment=1, CurrentValue=FOV, Callback=function(v) FOV=v end})
-PlayerTab:CreateToggle({Name="MaxZoomCamera", CurrentValue=false, Callback=function(v) maxZoomEnabled=v end})
-PlayerTab:CreateToggle({Name="ESP", CurrentValue=false, Callback=function(v) ESPEnabled=v end})
-
--- Visual Tab
-VisualTab:CreateToggle({Name="Cloud Color Toggle", CurrentValue=false, Callback=function(v) cloudToggle=v end})
-VisualTab:CreateColorPicker({Name="Cloud Color", Default=cloudColor, Callback=function(c) cloudColor=c end})
-VisualTab:CreateToggle({Name="All Part Color Toggle", CurrentValue=false, Callback=function(v) allPartToggle=v end})
-VisualTab:CreateColorPicker({Name="All Part Color", Default=allPartColor, Callback=function(c) allPartColor=c end})
-
--- Aim Tab (遅延で確実に表示)
+-- ===== Delay 2s Before UI =====
 task.spawn(function()
-    task.wait(0.1)
+    task.wait(2)
+
+    -- Tabs
+    local PlayerTab = Window:CreateTab("Player", 4483362458)
+    local VisualTab = Window:CreateTab("Visual", 4483362458)
+    local AimTab = Window:CreateTab("Aim", 4483362458)
+
+    -- Player Tab
+    PlayerTab:CreateToggle({Name="Fly", CurrentValue=false, Callback=function(v) flying=v end})
+    PlayerTab:CreateSlider({Name="Fly Speed", Range={10,200}, Increment=1, CurrentValue=FlySpeed, Callback=function(v) FlySpeed=v end})
+    PlayerTab:CreateToggle({Name="Noclip", CurrentValue=false, Callback=function(v) noclip=v end})
+    PlayerTab:CreateToggle({Name="Infinity Jump", CurrentValue=false, Callback=function(v) infinityJump=v end})
+    PlayerTab:CreateToggle({Name="WalkLegArmLock", CurrentValue=false, Callback=function(v) walkLock=v end})
+    PlayerTab:CreateToggle({Name="SpeedBoost", CurrentValue=false, Callback=function(v) speedBoost=v end})
+    PlayerTab:CreateSlider({Name="FOV", Range={60,120}, Increment=1, CurrentValue=FOV, Callback=function(v) FOV=v end})
+    PlayerTab:CreateToggle({Name="MaxZoomCamera", CurrentValue=false, Callback=function(v) maxZoomEnabled=v end})
+    PlayerTab:CreateToggle({Name="ESP", CurrentValue=false, Callback=function(v) ESPEnabled=v end})
+
+    -- Visual Tab
+    VisualTab:CreateToggle({Name="Cloud Color Toggle", CurrentValue=false, Callback=function(v) cloudToggle=v end})
+    VisualTab:CreateColorPicker({Name="Cloud Color", Default=cloudColor, Callback=function(c) cloudColor=c end})
+    VisualTab:CreateToggle({Name="All Part Color Toggle", CurrentValue=false, Callback=function(v) allPartToggle=v end})
+    VisualTab:CreateColorPicker({Name="All Part Color", Default=allPartColor, Callback=function(c) allPartColor=c end})
+
+    -- Aim Tab
     AimTab:CreateToggle({Name="AimBot", CurrentValue=false, Callback=function(v) AimBotEnabled=v end})
     AimTab:CreateToggle({Name="Silent Aim", CurrentValue=false, Callback=function(v) SilentAimEnabled=v end})
     AimTab:CreateSlider({Name="Aim Range", Range={1,50}, Increment=1, CurrentValue=AimRange, Callback=function(v) AimRange=v end})
