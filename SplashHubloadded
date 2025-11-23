@@ -1,52 +1,495 @@
-task.delay(2, function() -- ここでAimタブの描画タイミングを遅延させる
+-- Splash Hub v1 — 完全統合版（Executor向け）
+-- 要：Executor が game:HttpGet / loadstring を許可していること
 
-    if not Window then return end  -- 安全策
-    
-    local AimTab = Window:CreateTab("Aim", 4483362458)
-    if not AimTab then return end  -- さらに安全策
+-- ====== 安全に Rayfield を読み込む ======
+local ok, Rayfield = pcall(function()
+    return loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
+end)
+if not ok or typeof(Rayfield) ~= "table" then
+    return -- Executor以外では動かない前提なので何も出さず終了
+end
 
-    local AimSection = AimTab:CreateSection("Aim Settings")
-    if not AimSection then return end
+-- ====== ウィンドウ作成 ======
+local Window = Rayfield:CreateWindow({
+    Name = "Splash Hub v1",
+    LoadingTitle = "Splash Hub",
+    LoadingSubtitle = "by pom,",
+    ConfigurationSaving = {
+        Enabled = true,
+        FolderName = "SplashHubConfig"
+    }
+})
 
-    --========= AimBot =========--
-    AimSection:CreateToggle({
-        Name = "AimBot",
-        CurrentValue = false,
-        Callback = function(v)
-            _G.AimBot = v
-        end,
-    })
+-- ====== サービス ======
+local Players = game:GetService("Players")
+local Lighting = game:GetService("Lighting")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Workspace = workspace
 
-    --========= Silent Aim =========--
-    AimSection:CreateToggle({
-        Name = "Silent Aim",
-        CurrentValue = false,
-        Callback = function(v)
-            _G.SilentAim = v
-        end,
-    })
+local player = Players.LocalPlayer
+if not player then return end
 
-    --========= Color Pickers（絶対に Color3 指定）=========--
-    local defaultColor = Color3.fromRGB(255, 255, 255)
+-- ====== キャラ初期化/更新関数 ======
+local char, hrp, hum
+local function updateCharacter(c)
+    char = c
+    if not char then return end
+    hrp = char:FindFirstChild("HumanoidRootPart") or char.PrimaryPart
+    hum = char:FindFirstChild("Humanoid")
+end
+if player.Character then updateCharacter(player.Character) end
+player.CharacterAdded:Connect(updateCharacter)
 
-    AimSection:CreateColorPicker({
-        Name = "Cloud Color",
-        Color = defaultColor,
-        Callback = function(color)
-            game.Lighting.Atmosphere.Color = color
-        end,
-    })
+-- ====== 保持する元のパーツ色を保存 (AllPartColorの復帰用) ======
+local originalColors = {}
+local function recordOriginalColors()
+    originalColors = {}
+    for _, obj in pairs(Workspace:GetDescendants()) do
+        if obj:IsA("BasePart") then
+            originalColors[obj] = obj.Color
+        end
+    end
+end
+-- 最初に一度記録
+recordOriginalColors()
+-- ワールド変化が激しい場合は必要に応じて再記録させる（UIから手動で再記録ボタン追加可能）
 
-    AimSection:CreateColorPicker({
-        Name = "All Part Color",
-        Color = defaultColor,
-        Callback = function(color)
-            for _,p in next, workspace:GetDescendants() do
-                if p:IsA("BasePart") then
-                    p.Color = color
+-- ====== 汎用ヘルパー ======
+local function safeCall(f, ...)
+    local ok, res = pcall(f, ...)
+    return ok, res
+end
+
+local function getPrimaryPartOfCharacter(c)
+    if not c then return nil end
+    return c:FindFirstChild("HumanoidRootPart")
+        or c:FindFirstChild("Torso")
+        or c:FindFirstChild("UpperTorso")
+        or c:FindFirstChild("LowerTorso")
+        or c:FindFirstChild("Head")
+        or c.PrimaryPart
+end
+
+-- ====== プレイヤー関連変数（デフォルト） ======
+local flying = false
+local FlySpeed = 50
+local moveKeys = {W=false,A=false,S=false,D=false,Space=false,Shift=false}
+
+local noclip = false
+local infinityJump = false
+local walkLock = false
+
+local normalWalkSpeed = 16
+local speedBoost = false
+local speedBoostAmount = 6 -- デフォルトでちょい速め（16 -> 22）
+
+local FOV = 60
+local maxZoomEnabled = false
+
+local ESPEnabled = false
+local ESPFolder = Instance.new("Folder")
+ESPFolder.Name = "SplashHub_ESP"
+ESPFolder.Parent = Workspace
+
+-- Visual vars
+local cloudToggle = false
+local cloudColor = Color3.fromRGB(135,206,235) -- default sky-like
+local allPartToggle = false
+local allPartColor = Color3.fromRGB(255,255,255)
+
+-- Ensure Atmosphere exists for sky color effects
+local atmosphere = Lighting:FindFirstChildOfClass("Atmosphere")
+if not atmosphere then
+    atmosphere = Instance.new("Atmosphere")
+    atmosphere.Parent = Lighting
+end
+
+-- Aim vars
+local AimBotEnabled = false
+local SilentAimEnabled = false
+local AimRange = 10
+local aimLerpSpeed = 0.20 -- 補間の強さ（0-1で指定。小さいほどゆっくり）
+
+-- Death lock: 一度死亡したら fly等無効にする設定
+local disableOnDeath = true
+local aliveSince = true
+if hum then
+    hum.Died:Connect(function()
+        aliveSince = false
+        if disableOnDeath then
+            flying = false
+            noclip = false
+            speedBoost = false
+            AimBotEnabled = false
+            SilentAimEnabled = false
+        end
+    end)
+end
+-- attach to future hums too
+player.CharacterAdded:Connect(function(c)
+    updateCharacter(c)
+    if hum then
+        hum.Died:Connect(function()
+            aliveSince = false
+            if disableOnDeath then
+                flying = false
+                noclip = false
+                speedBoost = false
+                AimBotEnabled = false
+                SilentAimEnabled = false
+            end
+        end)
+    end
+end)
+
+-- ====== 入力キャプチャ (移動用) ======
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    local k = input.KeyCode
+    if k == Enum.KeyCode.W then moveKeys.W = true end
+    if k == Enum.KeyCode.S then moveKeys.S = true end
+    if k == Enum.KeyCode.A then moveKeys.A = true end
+    if k == Enum.KeyCode.D then moveKeys.D = true end
+    if k == Enum.KeyCode.Space then moveKeys.Space = true end
+    if k == Enum.KeyCode.LeftShift then moveKeys.Shift = true end
+end)
+UserInputService.InputEnded:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    local k = input.KeyCode
+    if k == Enum.KeyCode.W then moveKeys.W = false end
+    if k == Enum.KeyCode.S then moveKeys.S = false end
+    if k == Enum.KeyCode.A then moveKeys.A = false end
+    if k == Enum.KeyCode.D then moveKeys.D = false end
+    if k == Enum.KeyCode.Space then moveKeys.Space = false end
+    if k == Enum.KeyCode.LeftShift then moveKeys.Shift = false end
+end)
+
+-- ====== 実行ループ ======
+RunService.RenderStepped:Connect(function()
+    -- ensure we have hrp/hum updated
+    if not char then
+        char = player.Character
+        if char then
+            hrp = getPrimaryPartOfCharacter(char)
+            hum = char:FindFirstChildOfClass("Humanoid")
+            if hum and hum.WalkSpeed then normalWalkSpeed = hum.WalkSpeed end
+        end
+    end
+
+    -- Fly movement
+    if flying and hrp then
+        local dir = Vector3.zero
+        local cf = Workspace.CurrentCamera and Workspace.CurrentCamera.CFrame or CFrame.new()
+        if moveKeys.W then dir += cf.LookVector end
+        if moveKeys.S then dir -= cf.LookVector end
+        if moveKeys.A then dir -= cf.RightVector end
+        if moveKeys.D then dir += cf.RightVector end
+        if moveKeys.Space then dir += Vector3.yAxis end
+        if moveKeys.Shift then dir -= Vector3.yAxis end
+
+        if dir.Magnitude > 0 then
+            hrp.Velocity = dir.Unit * FlySpeed
+        else
+            hrp.Velocity = Vector3.zero
+        end
+    end
+
+    -- WalkLock: stop animation playback
+    if walkLock and hum then
+        for _, track in pairs(hum:GetPlayingAnimationTracks()) do
+            track:Stop()
+        end
+    end
+
+    -- SpeedBoost: only override when on, otherwise keep default
+    if hum then
+        hum.WalkSpeed = (speedBoost and (normalWalkSpeed + speedBoostAmount)) or normalWalkSpeed
+    end
+
+    -- Camera FOV
+    local cam = Workspace.CurrentCamera
+    if cam then
+        cam.FieldOfView = FOV
+        if maxZoomEnabled then
+            cam.CameraType = Enum.CameraType.Custom
+        end
+    end
+
+    -- Visuals: cloud color via Atmosphere + OutdoorAmbient
+    if cloudToggle then
+        atmosphere.Color = cloudColor
+        Lighting.OutdoorAmbient = cloudColor
+    end
+
+    -- All Part Color (apply)
+    if allPartToggle then
+        for _, obj in pairs(Workspace:GetDescendants()) do
+            if obj:IsA("BasePart") then
+                obj.Color = allPartColor
+            end
+        end
+    end
+
+    -- ESP (simple name billboard)
+    if ESPEnabled then
+        for _, pl in pairs(Players:GetPlayers()) do
+            if pl ~= player and pl.Character and getPrimaryPartOfCharacter(pl.Character) then
+                if not ESPFolder:FindFirstChild(pl.Name) then
+                    local bill = Instance.new("BillboardGui")
+                    bill.Name = pl.Name
+                    bill.Adornee = getPrimaryPartOfCharacter(pl.Character)
+                    bill.Size = UDim2.new(0, 80, 0, 25)
+                    bill.AlwaysOnTop = true
+                    bill.StudsOffset = Vector3.new(0, 2, 0)
+                    local lbl = Instance.new("TextLabel", bill)
+                    lbl.Size = UDim2.new(1,0,1,0)
+                    lbl.BackgroundTransparency = 1
+                    lbl.Text = pl.Name
+                    lbl.TextScaled = true
+                    lbl.TextColor3 = Color3.new(1, 0, 0)
+                    bill.Parent = ESPFolder
+                end
+            else
+                local found = ESPFolder:FindFirstChild(pl.Name)
+                if found then found:Destroy() end
+            end
+        end
+    else
+        -- if disabled, clear children
+        for _, c in pairs(ESPFolder:GetChildren()) do
+            c:Destroy()
+        end
+    end
+
+    -- AimBot / Silent Aim logic (combined loop)
+    if (AimBotEnabled or SilentAimEnabled) and hrp and Workspace.CurrentCamera then
+        local closestTarget = nil
+        local closestDist = AimRange + 0.0001
+        for _, pl in pairs(Players:GetPlayers()) do
+            if pl ~= player and pl.Character and getPrimaryPartOfCharacter(pl.Character) then
+                local targetPart = getPrimaryPartOfCharacter(pl.Character)
+                local dist = (targetPart.Position - hrp.Position).Magnitude
+                if dist <= closestDist then
+                    closestDist = dist
+                    closestTarget = targetPart
                 end
             end
-        end,
+        end
+
+        if closestTarget then
+            local cam = Workspace.CurrentCamera
+            local goalCFrame = CFrame.new(cam.CFrame.Position, closestTarget.Position)
+            cam.CFrame = cam.CFrame:Lerp(goalCFrame, aimLerpSpeed)
+
+            if SilentAimEnabled then
+                -- try to trigger a click (executor dependent)
+                pcall(function()
+                    mouse1click()
+                end)
+                -- also try Tool activation if available
+                local tool = char and char:FindFirstChildOfClass("Tool")
+                if tool then
+                    pcall(function() tool:Activate() end)
+                end
+            end
+        end
+    end
+
+end)
+
+-- Noclip loop
+RunService.Stepped:Connect(function()
+    if noclip and char then
+        for _, v in pairs(char:GetDescendants()) do
+            if v:IsA("BasePart") then
+                v.CanCollide = false
+            end
+        end
+    end
+end)
+
+-- Infinity jump
+UserInputService.JumpRequest:Connect(function()
+    if infinityJump and hum then
+        hum:ChangeState(Enum.HumanoidStateType.Jumping)
+    end
+end)
+
+-- When new BaseParts appear, optionally record original colors (not automatic to avoid perf)
+-- recordOriginalColors() can be called from UI if needed
+
+-- ====== 2秒遅延してから UI を作成（Aimタブの描画問題を回避） ======
+task.spawn(function()
+    task.wait(2)
+
+    local PlayerTab = Window:CreateTab("Player", 4483362458)
+    local VisualTab = Window:CreateTab("Visual", 4483362458)
+    local AimTab = Window:CreateTab("Aim", 4483362458)
+
+    -- -------- Player Tab --------
+    PlayerTab:CreateToggle({
+        Name = "Fly（ON/OFF）",
+        CurrentValue = false,
+        Callback = function(v)
+            flying = v
+        end
     })
 
+    PlayerTab:CreateSlider({
+        Name = "Fly Speed",
+        Range = {10, 200},
+        Increment = 1,
+        CurrentValue = FlySpeed,
+        Callback = function(v)
+            FlySpeed = v
+        end
+    })
+
+    PlayerTab:CreateToggle({
+        Name = "Noclip（ON/OFF）",
+        CurrentValue = false,
+        Callback = function(v)
+            noclip = v
+        end
+    })
+
+    PlayerTab:CreateToggle({
+        Name = "Infinity Jump（ON/OFF）",
+        CurrentValue = false,
+        Callback = function(v)
+            infinityJump = v
+        end
+    })
+
+    PlayerTab:CreateToggle({
+        Name = "WalkLegArmLock（ON/OFF）",
+        CurrentValue = false,
+        Callback = function(v)
+            walkLock = v
+        end
+    })
+
+    PlayerTab:CreateToggle({
+        Name = "SpeedBoost（ON/OFF）",
+        CurrentValue = false,
+        Callback = function(v)
+            speedBoost = v
+        end
+    })
+
+    PlayerTab:CreateSlider({
+        Name = "FOV",
+        Range = {60, 120},
+        Increment = 1,
+        CurrentValue = FOV,
+        Callback = function(v)
+            FOV = v
+        end
+    })
+
+    PlayerTab:CreateToggle({
+        Name = "MaxZoomCamera（ON/OFF）",
+        CurrentValue = false,
+        Callback = function(v)
+            maxZoomEnabled = v
+        end
+    })
+
+    PlayerTab:CreateToggle({
+        Name = "ESP（ON/OFF）",
+        CurrentValue = false,
+        Callback = function(v)
+            ESPEnabled = v
+        end
+    })
+
+    -- -------- Visual Tab --------
+    -- Ensure color values are Color3 (Rayfield's ColorPicker expects that)
+    VisualTab:CreateToggle({
+        Name = "Cloud Color Toggle",
+        CurrentValue = cloudToggle,
+        Callback = function(v)
+            cloudToggle = v
+        end
+    })
+    VisualTab:CreateColorPicker({
+        Name = "Cloud Color",
+        Default = cloudColor,
+        Callback = function(c)
+            if typeof(c) == "Color3" then cloudColor = c end
+        end
+    })
+
+    VisualTab:CreateToggle({
+        Name = "All Part Color Toggle",
+        CurrentValue = allPartToggle,
+        Callback = function(v)
+            allPartToggle = v
+            if not allPartToggle then
+                -- restore original colors when toggled off
+                for part, col in pairs(originalColors) do
+                    if part and part.Parent then
+                        pcall(function() part.Color = col end)
+                    end
+                end
+            end
+        end
+    })
+    VisualTab:CreateColorPicker({
+        Name = "All Part Color",
+        Default = allPartColor,
+        Callback = function(c)
+            if typeof(c) == "Color3" then
+                allPartColor = c
+            end
+        end
+    })
+
+    -- Optional: button to re-record original colors
+    VisualTab:CreateButton({
+        Name = "Record Original Part Colors",
+        Callback = function()
+            recordOriginalColors()
+        end
+    })
+
+    -- -------- Aim Tab (create toggles/sliders AFTER tab exists) --------
+    -- Create them together to ensure AimTab isn't empty
+    AimTab:CreateToggle({
+        Name = "AimBot（ON/OFF）",
+        CurrentValue = AimBotEnabled,
+        Callback = function(v)
+            AimBotEnabled = v
+            if v then
+                SilentAimEnabled = false -- mutually exclusive (optional)
+            end
+        end
+    })
+    AimTab:CreateToggle({
+        Name = "Silent Aim（ON/OFF）",
+        CurrentValue = SilentAimEnabled,
+        Callback = function(v)
+            SilentAimEnabled = v
+            if v then
+                AimBotEnabled = false -- mutually exclusive (optional)
+            end
+        end
+    })
+    AimTab:CreateSlider({
+        Name = "Aim Range",
+        Range = {1, 50},
+        Increment = 1,
+        CurrentValue = AimRange,
+        Callback = function(v)
+            AimRange = v
+        end
+    })
+
+    -- Notify ready (small popup)
+    Window:Notify({
+        Title = "Splash Hub",
+        Content = "UI Ready — Aim tab loaded",
+        Duration = 3
+    })
 end)
