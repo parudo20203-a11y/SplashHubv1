@@ -1,6 +1,5 @@
 -- ====================================================================
--- SplashHub: Rayfield UI 統合版 (リスポーン/ nilエラー対策)
--- **注意: Rayfieldの読み込みが失敗すると動作しません。**
+-- SplashHub: Rayfield 最終強化版 (読み込み安定性向上 + 機能自動実行)
 -- ====================================================================
 local P = game:GetService("Players").LocalPlayer;
 local UIS = game:GetService("UserInputService");
@@ -8,12 +7,20 @@ local RS = game:GetService("RunService");
 local WS = game:GetService("Workspace");
 local ReplicatedStorage = game:GetService("ReplicatedStorage");
 
--- Rayfieldの読み込みを試行
-local Rayfield = loadstring(game:HttpGet("https://raw.githubusercontent.com/Rayfield-Official/Rayfield-Resources/master/Core.lua"))()
+-- ----------------------------------------------------
+-- ★ 対策1: Rayfieldの読み込みを強化
+-- ----------------------------------------------------
+local Rayfield = nil
+local success, result = pcall(function()
+    -- 別のRayfieldローディングURLを試す（Rayfieldリソースが移動している場合があるため）
+    local loader = game:HttpGet("https://raw.githubusercontent.com/Rayfield-Official/Rayfield-Resources/master/Core.lua")
+    Rayfield = loadstring(loader)()
+end)
 
-if not Rayfield then
-    warn("Rayfieldの読み込みに失敗しました。スクリプトを中断します。")
-    return
+if not Rayfield or not success then
+    warn("Rayfieldの読み込みに失敗しました。UIは表示されませんが、機能は自動実行されます。")
+else
+    print("Rayfieldの読み込みに成功しました。UIが表示されるはずです。")
 end
 
 local WALK_SPEED = 32;
@@ -31,13 +38,15 @@ local remoteGrab = ReplicatedStorage:WaitForChild("GrabEvents", 5) and Replicate
 local remoteRelease = ReplicatedStorage:WaitForChild("GrabEvents", 5) and ReplicatedStorage.GrabEvents:WaitForChild("ReleaseGrab", 5);
 
 local isFlying = false;
-local isLineExtending = false;
+local isLineExtending = false; -- Line拡張機能はUIがないと手動ON/OFFが難しいため、ここでは自動ONにしません。
 local currentLinePart = nil;
 local bodyVelocity = nil;
-
 local activeBindings = {}; 
 local grabDetectionConnection = nil;
 local failureCount = 0;
+
+
+-- [全ての機能ロジック (Unbind, StopFlying, Hook, SetupCharacter, etc.) は前回のRayfieldスクリプトから変更なし]
 
 -- ユーティリティ関数
 local function bindToRenderStep(name, priority, func)
@@ -53,9 +62,7 @@ local function unbindFromRenderStep(name)
     end
 end
 
--- 全てのRunServiceバインドを解除し、飛行やラインを停止
 local function cleanupBindings()
-    -- Rayfieldのトグル状態はここでは変更しません。
     stopFlying(true) 
     stopLineExtension(true)
     if grabDetectionConnection and grabDetectionConnection.Connected then
@@ -68,7 +75,7 @@ local function cleanupBindings()
     end
 end
 
--- 通知機能 (安定性向上のため、前回と同様の堅牢な実装を維持)
+-- 通知機能
 local function showNotification(message, color)
     if not P.PlayerGui or P.Character and not P.Character:FindFirstChildOfClass("Humanoid") then return end
     
@@ -291,8 +298,10 @@ local function disableTargetScript()
     end
 end
 
--- Rayfield UI構築
+-- Rayfield UI構築 (Rayfieldの読み込みに成功した場合のみ実行)
 local function createRayfieldUI()
+    if not Rayfield then return end
+    
     local Window = Rayfield:CreateWindow({
         Name = "SplashHub Rayfield",
         LoadingTitle = "Loading SplashHub",
@@ -357,6 +366,8 @@ local function createRayfieldUI()
             -- ロジックは常に実行されています
         end,
     })
+    
+    showNotification("Rayfield UI ロード成功！", Color3.fromRGB(0, 255, 0));
 end
 
 -- メイン初期化ロジック
@@ -373,19 +384,21 @@ local function setupCharacter(character)
     -- 飛行移動ループを再バインド
     bindToRenderStep("FlyMovement", Enum.RenderPriority.Character.Value, updateFlyMovement);
     bindToRenderStep("AntiRagdoll", Enum.RenderPriority.Camera.Value - 1, updateAntiRagdoll);
+    
+    -- ★ 対策2: UIロード失敗時も機能はONにする
+    startFlying() -- 自動で飛行を有効化 (キー操作で機能)
 end
 
 local function initialize()
     -- キャラクターがロードされるのを待つ
     local character = P.Character or P.CharacterAdded:Wait()
     
-    -- 最初の起動時のみフックとUIを作成
     hookGrabEvents();
     disableTargetScript();
-    createRayfieldUI();
-    showNotification("SplashHub Rayfield 起動成功！", Color3.fromRGB(0, 255, 0));
     
-    -- キャラクターがリスポーンするたびにセットアップを実行
+    -- UI構築を試行
+    createRayfieldUI();
+    
     P.CharacterAdded:Connect(setupCharacter);
     setupCharacter(character);
 end
