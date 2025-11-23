@@ -21,10 +21,12 @@ local RunService = game:GetService("RunService")
 
 -- Player Variables
 local char, hrp, hum
+local normalWalkSpeed = 16
 local function updateCharacter(c)
     char = c
     hrp = c:FindFirstChild("HumanoidRootPart") or c.PrimaryPart
     hum = c:FindFirstChild("Humanoid")
+    if hum then normalWalkSpeed = hum.WalkSpeed end
 end
 player.CharacterAdded:Connect(updateCharacter)
 if player.Character then updateCharacter(player.Character) end
@@ -93,10 +95,15 @@ end)
 
 -- SpeedBoost
 local speedBoost = false
-local normalWalkSpeed = 16
 local boostAmount = 10
 RunService.RenderStepped:Connect(function()
-    if hum then hum.WalkSpeed = speedBoost and normalWalkSpeed + boostAmount or normalWalkSpeed end
+    if hum then
+        if speedBoost then
+            hum.WalkSpeed = normalWalkSpeed + boostAmount
+        else
+            hum.WalkSpeed = normalWalkSpeed
+        end
+    end
 end)
 
 -- FOV / MaxZoomCamera
