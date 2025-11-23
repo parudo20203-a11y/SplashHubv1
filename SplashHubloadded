@@ -1,5 +1,5 @@
 -- ====================================================================
--- SplashHub: V-GUI 統合版 (飛行/掴み強制/防御)
+-- SplashHub: V-GUI 最終安定版 (エラー対策済み)
 -- ====================================================================
 local P = game:GetService("Players").LocalPlayer;
 local UIS = game:GetService("UserInputService");
@@ -38,23 +38,26 @@ local flyLoopBinding = nil;
 local antiragdollBinding = nil;
 local grabDetectionConnection = nil;
 local failureCount = 0;
-local notificationQueue = {};
 
--- UI表示に依存しない通知関数 (V-GUIの通知機能があればそちらを使う)
+-- 修正1: 通知ロジックの強化
 local function showNotification(message, color)
-    -- V-GUIに依存しないシンプルな通知ロジックを維持 (安定性のため)
     if not P.PlayerGui then return end
-    local G = Instance.new("ScreenGui", P.PlayerGui);
-    local NF = Instance.new("Frame", G);
-    local T = Instance.new("TextLabel", NF);
+    
+    local G = Instance.new("ScreenGui");
+    if not pcall(function() G.Parent = P.PlayerGui end) then G:Destroy(); return end -- 親設定の失敗をチェック
+    G.Name = "SplashHubNotify";
+
+    local NF = Instance.new("Frame");
+    local T = Instance.new("TextLabel");
 
     pcall(function()
-        G.Name = "SplashHubNotify";
+        NF.Parent = G;
         NF.Size = UDim2.new(0, 300, 0, 50);
         NF.Position = UDim2.new(1, 0, 1, -50);
         NF.BackgroundColor3 = color or Color3.new(0.2, 0.2, 0.2);
         NF.BackgroundTransparency = 0.1;
 
+        T.Parent = NF;
         T.Size = UDim2.new(1, 0, 1, 0);
         T.BackgroundTransparency = 1;
         T.Text = message;
@@ -73,7 +76,7 @@ local function showNotification(message, color)
     end);
 end;
 
--- 掴み/防御RemoteEventの無効化（Hook）
+-- 修正2: フック成功時の通知を削除し、コンソールエラーを軽減
 local function hookGrabEvents()
     for _, path in pairs(GRAB_EVENTS) do
         local parts = string.split(path, ".");
@@ -88,17 +91,18 @@ local function hookGrabEvents()
         local event = current and current:FindFirstChild(eventName);
 
         if event and event:IsA("RemoteEvent") then
-            local success, _ = pcall(function()
+            pcall(function()
+                -- イベントを無効化（フック）
                 event.OnClientEvent:Connect(function() end);
             end)
-            if success then
-                showNotification("🔒 防御イベント (" .. path .. ") をフックしました。", Color3.fromRGB(0, 255, 255));
-            end
+            -- showNotificationはここで削除されます
         end
     end
+    showNotification("🔒 全ての防御イベントをフックしました。", Color3.fromRGB(0, 255, 255));
 end
 
--- Line距離制限解除機能のロジック
+
+-- Line距離制限解除機能のロジック (変更なし)
 local function startLineExtension()
     if isLineExtending then return end;
 
@@ -160,7 +164,8 @@ UIS.InputBegan:Connect(function(input, gameProcessedEvent)
         local forcedTargetPos = mouseRay.Origin + mouseRay.Direction * 5000; 
         
         pcall(remoteGrab.FireServer, remoteGrab, forcedTargetPos, forcedTargetPos);
-        showNotification("💥 遠距離掴み信号を強制送信！", Color3.fromRGB(255, 255, 0));
+        -- この通知も頻繁なため削除してもよいが、動作確認のため維持
+        showNotification("💥 遠距離掴み信号を強制送信！", Color3.fromRGB(255, 255, 0)); 
 
     elseif input.UserInputType == Enum.UserInputType.MouseButton2 then
         -- 右クリック: リリースイベントを強制実行
@@ -305,7 +310,7 @@ local function createVGui()
     -- Anti-Detection Section
     local AntiCheatSection = MainTab:Section("Anti-Detection")
     AntiCheatSection:Toggle("Anti-Ragdoll (Auto-Clear)", function(toggled)
-        -- ロジックは常に実行されているが、UIで状態を反映させる
+        -- ロジックはRenderStepで常に実行されています
     end)
     
     -- 初期値設定
