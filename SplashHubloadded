@@ -1,363 +1,246 @@
--- ====================================================================
--- SplashHub: Rayfield UI 統合スクリプト (機能連動版)
--- ====================================================================
-local P = game:GetService("Players").LocalPlayer;
-local UIS = game:GetService("UserInputService");
-local RS = game:GetService("RunService");
-local WS = game:GetService("Workspace");
-local ReplicatedStorage = game:GetService("ReplicatedStorage");
-
--- UI変数とゲーム変数
-local WALK_SPEED = 32;
-local FLY_SPEED = 40;
-local MAX_FAILURES = 5;
-local activeBindings = {}; 
-local grabDetectionConnection = nil;
-local failureCount = 0;
-local isFlying = false;
-local isLineExtending = false;
-local currentLinePart = nil;
-local bodyVelocity = nil;
-
--- 掴み回避に必要な定数とRemoteEvent
-local GRAB_DETECTION_OBJECTS = {"BodyPosition", "BodyVelocity", "BodyGyro", "AlignOrientation", "AlignPosition", "Attachment"};
-local GRAB_EVENTS = {
-    "GrabEvents.ExtendGrabLine", 
-    "CharacterEvents.Look",
-    "GrabEvents.GrabTarget",
-    "GrabEvents.ReleaseGrab",
-};
-local remoteGrab = ReplicatedStorage:WaitForChild("GrabEvents", 5) and ReplicatedStorage.GrabEvents:WaitForChild("GrabTarget", 5);
-local remoteRelease = ReplicatedStorage:WaitForChild("GrabEvents", 5) and ReplicatedStorage.GrabEvents:WaitForChild("ReleaseGrab", 5);
-
--- Rayfieldの読み込み
-local RAYFIELD_LOADER_URL = "https://sirius.menu/rayfield" 
-local Rayfield = nil
-local success, result = pcall(function()
-    local loader = game:HttpGet(RAYFIELD_LOADER_URL)
-    Rayfield = loadstring(loader)()
-end)
-
-if not Rayfield or not success then
-    warn("Rayfieldの読み込みに失敗しました。スクリプトを中断します。")
-    return
-end
-
--- ----------------------------------------------------
--- 🎮 機能ロジック (以前の安定版から継承)
--- ----------------------------------------------------
-
--- ユーティリティ関数
-local function bindToRenderStep(name, priority, func)
-    if activeBindings[name] then RS:UnbindFromRenderStep(name) end
-    RS:BindToRenderStep(name, priority, func)
-    activeBindings[name] = true
-end
-
-local function unbindFromRenderStep(name)
-    if activeBindings[name] then
-        RS:UnbindFromRenderStep(name)
-        activeBindings[name] = nil
-    end
-end
-
--- 通知機能 (簡略化)
-local function showNotification(message)
-    if Rayfield.Notify then
-        Rayfield.Notify({Title = "SplashHub", Content = message, Duration = 3})
-    end
-end
-
--- 掴み/防御RemoteEventの無効化（Hook）
-local function hookGrabEvents()
-    for _, path in pairs(GRAB_EVENTS) do
-        local parts = string.split(path, ".");
-        local eventName = table.remove(parts);
-        local current = ReplicatedStorage;
-
-        for _, part in ipairs(parts) do
-            current = current:WaitForChild(part, 3);
-            if not current then break end
-        end
-
-        local event = current and current:FindFirstChild(eventName);
-
-        if event and event:IsA("RemoteEvent") then
-            pcall(function()
-                event.OnClientEvent:Connect(function() end);
-            end)
-        end
-    end
-    showNotification("全ての防御イベントをフックしました。")
-end
-
--- Line距離制限解除機能のロジック
-local function startLineExtension()
-    if isLineExtending then return end;
-
-    local Root = P.Character and P.Character:FindFirstChild("HumanoidRootPart");
-    if not Root then showNotification("エラー: ラインの起点が見つかりません。"); return end;
-
-    isLineExtending = true;
-
-    currentLinePart = Instance.new("Part");
-    pcall(function()
-        currentLinePart.Parent = WS;
-        currentLinePart.Anchored = true;
-        currentLinePart.CanCollide = false;
-        currentLinePart.BrickColor = BrickColor.new("Really red");
-        currentLinePart.Material = Enum.Material.ForceField;
-        currentLinePart.Transparency = 0.5;
-        currentLinePart.Name = "InfiniteGrabLine"
-    end)
-
-    bindToRenderStep("LineExtension", Enum.RenderPriority.Camera.Value + 1, function()
-        if not isLineExtending or not currentLinePart or not Root or not WS.CurrentCamera then return end
-
-        local mouseRay = WS.CurrentCamera:ScreenPointToRay(UIS:GetMouseLocation().X, UIS:GetMouseLocation().Y);
-        local targetPos = mouseRay.Origin + mouseRay.Direction * 10000; 
-
-        local startPos = Root.Position;
-        local distance = (targetPos - startPos).Magnitude;
-
-        pcall(function()
-            currentLinePart.Size = Vector3.new(0.2, 0.2, distance);
-            currentLinePart.CFrame = CFrame.new(startPos, targetPos) * CFrame.new(0, 0, -distance / 2);
-        end)
-    end)
-    showNotification("Line拡張 ON: マウスで掴み、右クリックでリリース")
-end
-
-local function stopLineExtension()
-    if not isLineExtending then return end
-    isLineExtending = false;
-    unbindFromRenderStep("LineExtension");
-
-    if currentLinePart then
-        pcall(currentLinePart.Destroy, currentLinePart);
-        currentLinePart = nil;
-    end
-    showNotification("Line拡張 OFF")
-end
-
--- 強制掴み実行ロジック (UIトグルとは独立して実行)
-UIS.InputBegan:Connect(function(input, gameProcessedEvent)
-    if gameProcessedEvent or not isLineExtending or not remoteGrab or not remoteRelease then return end
-
-    if input.UserInputType == Enum.UserInputType.MouseButton1 then
-        local mouseRay = WS.CurrentCamera:ScreenPointToRay(UIS:GetMouseLocation().X, UIS:GetMouseLocation().Y);
-        local forcedTargetPos = mouseRay.Origin + mouseRay.Direction * 5000; 
-        
-        pcall(remoteGrab.FireServer, remoteGrab, forcedTargetPos, forcedTargetPos);
-    elseif input.UserInputType == Enum.UserInputType.MouseButton2 then
-        pcall(remoteRelease.FireServer, remoteRelease);
-    end
-end)
-
-
--- 飛行機能
-local function stopFlying()
-    if not isFlying then return end
-    isFlying = false; failureCount = 0;
-    unbindFromRenderStep("AntiAC");
-    local H = P.Character and P.Character:FindFirstChildOfClass("Humanoid");
-    if H and H.Parent then pcall(function() H.WalkSpeed = WALK_SPEED end) end;
-    if bodyVelocity and bodyVelocity.Parent then pcall(bodyVelocity.Destroy, bodyVelocity); bodyVelocity = nil end;
-    showNotification("飛行 OFF")
-}
-
-local function startFlying()
-    if isFlying then return end;
-    local H = P.Character and P.Character:FindFirstChildOfClass("Humanoid");
-    local Root = P.Character and P.Character:FindFirstChild("HumanoidRootPart");
-    if not H or not Root or not Root.Parent then showNotification("エラー: キャラクターが見つかりません。"); return end;
-    isFlying = true;
-    pcall(function() H.WalkSpeed = 0 end)
-    
-    if not bodyVelocity or not bodyVelocity.Parent then
-        bodyVelocity = Root:FindFirstChildOfClass("BodyVelocity") or Instance.new("BodyVelocity");
-        bodyVelocity.MaxForce = Vector3.new(1, 1, 1) * 9e9; bodyVelocity.P = 1000;
-        pcall(function() bodyVelocity.Parent = Root end)
-    end
-    
-    bindToRenderStep("AntiAC", Enum.RenderPriority.Camera.Value, function()
-        if not P.Character or not Root or not Root.Parent or not H or not H.Parent then stopFlying(); return end;
-        if H.WalkSpeed ~= 0 then
-            pcall(function() H.WalkSpeed = 0 end)
-            if H.WalkSpeed ~= 0 then
-                failureCount = failureCount + 1;
-                if failureCount >= MAX_FAILURES then showNotification("アンチチート検出。飛行を解除します。"); stopFlying(); return end
-            end
-        else failureCount = 0; end
-        if bodyVelocity and not bodyVelocity.Parent then pcall(function() bodyVelocity.Parent = Root end); end;
-    end);
-    showNotification("飛行 ON")
-}
-
-local function updateFlyMovement()
-    if not isFlying or not P.Character then stopFlying(); return end
-    local H = P.Character:FindFirstChildOfClass("Humanoid");
-    local Root = P.Character:FindFirstChild("HumanoidRootPart");
-    if not H or not Root or not bodyVelocity or not bodyVelocity.Parent then stopFlying(); return end
-
-    local C = WS.CurrentCamera; if not C then return end;
-    local CF_ = C.CFrame; local mV = Vector3.new(0, 0, 0);
-    if UIS:IsKeyDown(Enum.KeyCode.W) then mV = mV + CF_.LookVector end;
-    if UIS:IsKeyDown(Enum.KeyCode.S) then mV = mV - CF_.LookVector end;
-    if UIS:IsKeyDown(Enum.KeyCode.A) then mV = mV - CF_.RightVector end;
-    if UIS:IsKeyDown(Enum.KeyCode.D) then mV = mV + CF_.RightVector end;
-    if UIS:IsKeyDown(Enum.KeyCode.Space) then mV = mV + Vector3.new(0, 1, 0) end;
-    if UIS:IsKeyDown(Enum.KeyCode.LeftShift) or UIS:IsKeyDown(Enum.KeyCode.RightShift) then mV = mV - Vector3.new(0, 1, 0) end;
-    if mV.Magnitude > 0 then
-        pcall(function() bodyVelocity.Velocity = mV.unit * FLY_SPEED end);
-    else
-        pcall(function() bodyVelocity.Velocity = Vector3.new(0, 0, 0) end);
-    end;
-end;
-
-
-local function updateAntiRagdoll()
-    local H = P.Character and P.Character:FindFirstChildOfClass("Humanoid");
-    if H and H.Parent and H.PlatformStand == true then
-         pcall(function() H.PlatformStand = false; end);
-    end
-end;
-
-local function setupGrabDetection(rootPart)
-    if grabDetectionConnection and grabDetectionConnection.Connected then grabDetectionConnection:Disconnect(); end
-    grabDetectionConnection = rootPart.ChildAdded:Connect(function(child)
-        for _, name in pairs(GRAB_DETECTION_OBJECTS) do
-            if child.ClassName == name and child.Parent == rootPart then
-                showNotification("掴みオブジェクト挿入検出！脱出を試みます。");
-                pcall(child.Destroy, child);
-            end
-        end
-    end);
-end
-
-local function disableTargetScript()
-    local playerScripts = P:FindFirstChild("PlayerScripts");
-    if not playerScripts then return end
-    local targetScript = playerScripts:FindFirstChild("CharacterAndBeamMove");
-    if targetScript then
-        pcall(function() targetScript:Destroy(); end)
-    end
-end
-
-local function setupCharacter(character)
-    local H = character:FindFirstChildOfClass("Humanoid");
-    if H then pcall(function() H.WalkSpeed = WALK_SPEED end) end;
-
-    local Root = character:FindFirstChild("HumanoidRootPart");
-    if Root then setupGrabDetection(Root) end;
-
-    -- 飛行移動ループとアンチラグドールを再バインド
-    bindToRenderStep("FlyMovement", Enum.RenderPriority.Character.Value, updateFlyMovement);
-    bindToRenderStep("AntiRagdoll", Enum.RenderPriority.Camera.Value - 1, updateAntiRagdoll);
-end
-
--- ----------------------------------------------------
--- 🎨 Rayfield UI 定義
--- ----------------------------------------------------
+-- Rayfield 読み込み
+local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
 
 local Window = Rayfield:CreateWindow({
-    Name = "ぱるの超絶UI",
-    LoadingTitle = "読み込み中…",
-    LoadingSubtitle = "Rayfield v3",
-    ConfigurationSaving = {
-        Enabled = true,
-        FolderName = "MyAwesomeUI"
-    }
+    Name = "Splash Hub v1",
+    LoadingTitle = "Splash Hub",
+    LoadingSubtitle = "by pom,",
+    ConfigurationSaving = {Enabled = true, FolderName = "MyAwesomeUI"}
 })
 
-local MainTab = Window:CreateTab("メイン", 4483362458)
-local FlightSection = MainTab:CreateSection("飛行")
+local MainTab = Window:CreateTab("Player", 4483362458)
 
-FlightSection:CreateToggle({
-    Name = "Infinite Flight (飛行)",
+--===== Services & Player =====--
+local player = game.Players.LocalPlayer
+local cam = workspace.CurrentCamera
+local UIS = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+
+--===== Player Variables =====--
+local char, hrp, hum
+local function updateCharacter(c)
+    char = c
+    hrp = char:WaitForChild("HumanoidRootPart")
+    hum = char:WaitForChild("Humanoid")
+end
+updateCharacter(player.Character or player.CharacterAdded:Wait())
+player.CharacterAdded:Connect(updateCharacter)
+
+--===== Fly =====--
+local flying = false
+local FlySpeed = 50
+local moveKeys = {W=false, A=false, S=false, D=false, Space=false, Shift=false}
+
+--===== Noclip =====--
+local noclip = false
+RunService.Stepped:Connect(function()
+    if noclip and char then
+        for _, v in pairs(char:GetDescendants()) do
+            if v:IsA("BasePart") then
+                v.CanCollide = false
+            end
+        end
+    end
+end)
+
+--===== Infinity Jump =====--
+local infinityJump = false
+UIS.JumpRequest:Connect(function()
+    if infinityJump and hum then
+        hum:ChangeState(Enum.HumanoidStateType.Jumping)
+    end
+end)
+
+--===== Key Inputs for Fly =====--
+UIS.InputBegan:Connect(function(input, gp)
+    if gp then return end
+    local k = input.KeyCode
+    if k == Enum.KeyCode.W then moveKeys.W = true end
+    if k == Enum.KeyCode.A then moveKeys.A = true end
+    if k == Enum.KeyCode.S then moveKeys.S = true end
+    if k == Enum.KeyCode.D then moveKeys.D = true end
+    if k == Enum.KeyCode.Space then moveKeys.Space = true end
+    if k == Enum.KeyCode.LeftShift then moveKeys.Shift = true end
+end)
+UIS.InputEnded:Connect(function(input, gp)
+    if gp then return end
+    local k = input.KeyCode
+    if k == Enum.KeyCode.W then moveKeys.W = false end
+    if k == Enum.KeyCode.A then moveKeys.A = false end
+    if k == Enum.KeyCode.S then moveKeys.S = false end
+    if k == Enum.KeyCode.D then moveKeys.D = false end
+    if k == Enum.KeyCode.Space then moveKeys.Space = false end
+    if k == Enum.KeyCode.LeftShift then moveKeys.Shift = false end
+end)
+
+--===== Fly Movement =====--
+RunService.RenderStepped:Connect(function()
+    if flying and hrp then
+        local dir = Vector3.zero
+        local cf = cam.CFrame
+        if moveKeys.W then dir += cf.LookVector end
+        if moveKeys.S then dir -= cf.LookVector end
+        if moveKeys.A then dir -= cf.RightVector end
+        if moveKeys.D then dir += cf.RightVector end
+        if moveKeys.Space then dir += Vector3.yAxis end
+        if moveKeys.Shift then dir -= Vector3.yAxis end
+        if dir.Magnitude > 0 then
+            hrp.Velocity = dir.Unit * FlySpeed
+        else
+            hrp.Velocity = Vector3.zero
+        end
+    end
+end)
+
+--===== Camera FOV & MaxZoomCamera =====--
+local currentFOV = 70
+local maxZoomEnabled = false
+cam.FieldOfView = currentFOV
+
+MainTab:CreateSlider({
+    Name="FOV",
+    Range={70,200},
+    Increment=1,
+    CurrentValue=currentFOV,
+    Callback=function(v)
+        currentFOV = v
+    end
+})
+
+RunService.RenderStepped:Connect(function()
+    if cam then
+        cam.FieldOfView = currentFOV
+        if maxZoomEnabled then
+            cam.CameraType = Enum.CameraType.Custom
+        end
+    end
+end)
+
+--===== WalkLegArmLock =====--
+local walkLock = false
+RunService.RenderStepped:Connect(function()
+    if walkLock and hum then
+        for _, track in pairs(hum:GetPlayingAnimationTracks()) do
+            track:Stop()
+        end
+    end
+end)
+
+--===== SpeedBoost =====--
+local speedBoost = false
+local normalWalkSpeed = 16
+local boostAmount = 10
+RunService.RenderStepped:Connect(function()
+    if hum then
+        if speedBoost then
+            hum.WalkSpeed = normalWalkSpeed + boostAmount
+        else
+            hum.WalkSpeed = normalWalkSpeed
+        end
+    end
+end)
+
+--===== ESP =====--
+local espEnabled = false
+local espBoxes = {}
+local function createESP(target)
+    if espBoxes[target] then return end
+    local box = Drawing.new("Square")
+    box.Color = Color3.new(1,0,0)
+    box.Thickness = 2
+    box.Transparency = 1
+    box.Visible = false
+    box.Filled = false
+    espBoxes[target] = box
+end
+RunService.RenderStepped:Connect(function()
+    if espEnabled then
+        for _, p in pairs(game.Players:GetPlayers()) do
+            if p ~= player and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+                createESP(p)
+                local hrp = p.Character.HumanoidRootPart
+                local pos, onScreen = cam:WorldToViewportPoint(hrp.Position)
+                local box = espBoxes[p]
+                if onScreen then
+                    box.Position = Vector2.new(pos.X-10,pos.Y-10)
+                    box.Size = Vector2.new(20,20)
+                    box.Visible = true
+                else
+                    box.Visible = false
+                end
+            end
+        end
+    else
+        for _, box in pairs(espBoxes) do
+            box.Visible = false
+        end
+    end
+end)
+
+--===== AutoAim =====--
+local autoAim = false
+local autoAimActive = false
+local aimRadius = 10 -- 半径10スタッド
+
+-- UIトグル
+MainTab:CreateToggle({
+    Name = "AutoAim（ON/OFF）",
     CurrentValue = false,
-    Flag = "InfiniteFlightFlag",
-    Callback = function(toggled)
-        if toggled then
-            startFlying()
-        else
-            stopFlying()
+    Callback = function(v)
+        autoAim = v
+        autoAimActive = v
+    end
+})
+
+-- Rキーでトグル
+UIS.InputBegan:Connect(function(input, gp)
+    if gp then return end
+    if input.KeyCode == Enum.KeyCode.R then
+        autoAim = not autoAim
+        autoAimActive = autoAim
+    end
+end)
+
+local function getClosestPlayer()
+    local closestDist = math.huge
+    local closestPlayer = nil
+    if not hrp then return nil end
+    for _, p in pairs(game.Players:GetPlayers()) do
+        if p ~= player and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+            local dist = (p.Character.HumanoidRootPart.Position - hrp.Position).Magnitude
+            if dist < closestDist and dist <= aimRadius then
+                closestDist = dist
+                closestPlayer = p
+            end
         end
-    end,
-})
-
-FlightSection:CreateSlider({
-    Name = "Fly Speed",
-    Range = {1, 150},
-    Increment = 5,
-    Suffix = "Studs/s",
-    CurrentValue = FLY_SPEED,
-    Flag = "FlySpeedFlag",
-    Callback = function(value)
-        FLY_SPEED = value
-        showNotification("飛行速度を "..value.." に設定")
-    end,
-})
-
-local BypassSection = MainTab:CreateSection("回避 & 保護")
-
-BypassSection:CreateToggle({
-    Name = "Anti-Ragdoll (自動解除)",
-    CurrentValue = true, -- デフォルトでONに推奨
-    Flag = "AntiRagdollFlag",
-    Callback = function(toggled)
-        -- ロジックは常にRunServiceにバインドされているため、トグルはUI表示用として扱う。
-        showNotification("アンチラグドールは常に有効です。")
-    end,
-})
-
-BypassSection:CreateToggle({
-    Name = "Grab Hook (掴み無効化)",
-    CurrentValue = true, -- デフォルトでONに推奨
-    Flag = "GrabHookFlag",
-    Callback = function(toggled)
-        if toggled then
-            hookGrabEvents()
-        else
-            -- UI上ではOFFにしても、一度フックすると解除はできないため、注意喚起のみ
-            showNotification("RemoteEventのフックは解除できません。", 3)
-        end
-    end,
-})
-
-local GrabSection = MainTab:CreateSection("ライン操作")
-
-GrabSection:CreateToggle({
-    Name = "Infinite Grab Distance (ライン拡張)",
-    CurrentValue = isLineExtending,
-    Flag = "InfiniteGrabFlag",
-    Callback = function(toggled)
-        if toggled then
-            startLineExtension()
-        else
-            stopLineExtension()
-        end
-    end,
-})
-
-
--- ----------------------------------------------------
--- ⚙️ 初期化シーケンス
--- ----------------------------------------------------
-local function initialize()
-    -- キャラクターのロードを待つ
-    local character = P.Character or P.CharacterAdded:Wait()
-    
-    -- 初回起動時に掴みイベントをフックし、ゲームスクリプトを無効化
-    hookGrabEvents();
-    disableTargetScript();
-    
-    -- キャラクターがリスポーンするたびにセットアップを実行
-    P.CharacterAdded:Connect(setupCharacter);
-    setupCharacter(character);
-    
-    -- 初回ロード完了通知
-    showNotification("ぱるの超絶UI 起動完了！", 5)
+    end
+    return closestPlayer
 end
 
-pcall(initialize)
+RunService.RenderStepped:Connect(function()
+    if autoAimActive and hrp and cam then
+        local target = getClosestPlayer()
+        if target then
+            local targetPos = target.Character.HumanoidRootPart.Position
+            local direction = (targetPos - cam.CFrame.Position).Unit
+            cam.CFrame = CFrame.new(cam.CFrame.Position, cam.CFrame.Position + direction)
+
+            local tool = player.Character:FindFirstChildOfClass("Tool")
+            if tool and tool:FindFirstChild("Activate") then
+                tool:Activate()
+                autoAimActive = false
+                autoAim = false
+            end
+        end
+    end
+end)
+
+--===== Rayfield UI =====--
+MainTab:CreateToggle({Name="Fly（ON/OFF）", CurrentValue=false, Callback=function(v) flying=v end})
+MainTab:CreateSlider({Name="Fly Speed", Range={10,200}, Increment=1, CurrentValue=FlySpeed, Callback=function(v) FlySpeed=v end})
+MainTab:CreateToggle({Name="Noclip（壁抜け ON/OFF）", CurrentValue=false, Callback=function(v) noclip=v end})
+MainTab:CreateToggle({Name="Infinity Jump（無限ジャンプ ON/OFF）", CurrentValue=false, Callback=function(v) infinityJump=v end})
+MainTab:CreateToggle({Name="ESP（ON/OFF）", CurrentValue=false, Callback=function(v) espEnabled=v end})
+MainTab:CreateToggle({Name="MaxZoomCamera（ON/OFF）", CurrentValue=false, Callback=function(v) maxZoomEnabled=v end})
+MainTab:CreateToggle({Name="WalkLegArmLock（ON/OFF）", CurrentValue=false, Callback=function(v) walkLock=v end})
+MainTab:CreateToggle({Name="SpeedBoost（ON/OFF）", CurrentValue=false, Callback=function(v) speedBoost=v end})
