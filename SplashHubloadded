@@ -7,6 +7,7 @@ local Window = Rayfield:CreateWindow({
     ConfigurationSaving = {Enabled = true, FolderName = "MyAwesomeUI"}
 })
 
+-- Tabs
 local MainTab = Window:CreateTab("Player", 4483362458)
 local VisualTab = Window:CreateTab("Visual", 4483362458)
 
@@ -16,6 +17,7 @@ local UIS = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 local Lighting = game:GetService("Lighting")
 local cam = workspace.CurrentCamera
+local mouse = player:GetMouse()
 
 -- Character
 local char, hrp, hum
@@ -29,45 +31,87 @@ end
 player.CharacterAdded:Connect(updateChar)
 if player.Character then updateChar(player.Character) end
 
--- ===== Fly =====
+-- ===== Player variables =====
 local flying, FlySpeed = false, 50
 local moveKeys = {W=false, A=false, S=false, D=false, Space=false, Shift=false}
+local noclip=false
+local infinityJump=false
+local walkLock=false
+local speedBoost=false
+local boostAmount=10
+local maxZoomEnabled=false
+local FOV=60
+
+local ESPEnabled=false
+local AutoAimEnabled=false
+local AutoAimRange=10
+
+-- ===== Fly movement =====
 UIS.InputBegan:Connect(function(input, gp)
     if gp then return end
     local k = input.KeyCode
-    if k == Enum.KeyCode.W then moveKeys.W=true end
-    if k == Enum.KeyCode.A then moveKeys.A=true end
-    if k == Enum.KeyCode.S then moveKeys.S=true end
-    if k == Enum.KeyCode.D then moveKeys.D=true end
-    if k == Enum.KeyCode.Space then moveKeys.Space=true end
-    if k == Enum.KeyCode.LeftShift then moveKeys.Shift=true end
+    if k==Enum.KeyCode.W then moveKeys.W=true end
+    if k==Enum.KeyCode.A then moveKeys.A=true end
+    if k==Enum.KeyCode.S then moveKeys.S=true end
+    if k==Enum.KeyCode.D then moveKeys.D=true end
+    if k==Enum.KeyCode.Space then moveKeys.Space=true end
+    if k==Enum.KeyCode.LeftShift then moveKeys.Shift=true end
+    -- AutoAim toggle via R
+    if k==Enum.KeyCode.R then AutoAimEnabled=not AutoAimEnabled end
 end)
 UIS.InputEnded:Connect(function(input, gp)
     if gp then return end
     local k = input.KeyCode
-    if k == Enum.KeyCode.W then moveKeys.W=false end
-    if k == Enum.KeyCode.A then moveKeys.A=false end
-    if k == Enum.KeyCode.S then moveKeys.S=false end
-    if k == Enum.KeyCode.D then moveKeys.D=false end
-    if k == Enum.KeyCode.Space then moveKeys.Space=false end
-    if k == Enum.KeyCode.LeftShift then moveKeys.Shift=false end
+    if k==Enum.KeyCode.W then moveKeys.W=false end
+    if k==Enum.KeyCode.A then moveKeys.A=false end
+    if k==Enum.KeyCode.S then moveKeys.S=false end
+    if k==Enum.KeyCode.D then moveKeys.D=false end
+    if k==Enum.KeyCode.Space then moveKeys.Space=false end
+    if k==Enum.KeyCode.LeftShift then moveKeys.Shift=false end
 end)
+
 RunService.RenderStepped:Connect(function()
-    if flying and hrp then
-        local dir = Vector3.zero
-        local cf = cam.CFrame
-        if moveKeys.W then dir+=cf.LookVector end
-        if moveKeys.S then dir-=cf.LookVector end
-        if moveKeys.A then dir-=cf.RightVector end
-        if moveKeys.D then dir+=cf.RightVector end
-        if moveKeys.Space then dir+=Vector3.yAxis end
-        if moveKeys.Shift then dir-=Vector3.yAxis end
-        hrp.Velocity=(dir.Magnitude>0 and dir.Unit*FlySpeed) or Vector3.zero
+    if hrp and hum then
+        -- Fly
+        if flying then
+            local dir=Vector3.zero
+            local cf=cam.CFrame
+            if moveKeys.W then dir+=cf.LookVector end
+            if moveKeys.S then dir-=cf.LookVector end
+            if moveKeys.A then dir-=cf.RightVector end
+            if moveKeys.D then dir+=cf.RightVector end
+            if moveKeys.Space then dir+=Vector3.yAxis end
+            if moveKeys.Shift then dir-=Vector3.yAxis end
+            hrp.Velocity=(dir.Magnitude>0 and dir.Unit*FlySpeed) or Vector3.zero
+        end
+        -- WalkLegArmLock
+        if walkLock then
+            for _,track in pairs(hum:GetPlayingAnimationTracks()) do track:Stop() end
+        end
+        -- SpeedBoost
+        hum.WalkSpeed=(speedBoost and (normalWalkSpeed+boostAmount)) or normalWalkSpeed
+    end
+    -- FOV
+    cam.FieldOfView=FOV
+    -- MaxZoomCamera
+    if maxZoomEnabled then cam.CameraType=Enum.CameraType.Custom end
+    -- AutoAim
+    if AutoAimEnabled then
+        for _,p in pairs(game.Players:GetPlayers()) do
+            if p~=player and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+                local target = p.Character.HumanoidRootPart
+                if (target.Position - hrp.Position).Magnitude <= AutoAimRange then
+                    cam.CFrame = CFrame.new(cam.CFrame.Position, target.Position)
+                    mouse1click()
+                    AutoAimEnabled=false
+                    break
+                end
+            end
+        end
     end
 end)
 
--- ===== Noclip =====
-local noclip=false
+-- Noclip
 RunService.Stepped:Connect(function()
     if noclip and char then
         for _,v in pairs(char:GetDescendants()) do
@@ -76,53 +120,22 @@ RunService.Stepped:Connect(function()
     end
 end)
 
--- ===== Infinity Jump =====
-local infinityJump=false
+-- Infinity Jump
 UIS.JumpRequest:Connect(function()
     if infinityJump and hum then hum:ChangeState(Enum.HumanoidStateType.Jumping) end
 end)
 
--- ===== WalkLegArmLock =====
-local walkLock=false
-RunService.RenderStepped:Connect(function()
-    if walkLock and hum then
-        for _,track in pairs(hum:GetPlayingAnimationTracks()) do track:Stop() end
-    end
-end)
-
--- ===== SpeedBoost =====
-local speedBoost=false
-local boostAmount=10
-RunService.RenderStepped:Connect(function()
-    if hum then hum.WalkSpeed=(speedBoost and (normalWalkSpeed+boostAmount)) or normalWalkSpeed end
-end)
-
--- ===== FOV =====
-local FOV=70
-RunService.RenderStepped:Connect(function()
-    cam.FieldOfView=FOV
-end)
-
--- ===== MaxZoomCamera =====
-local maxZoomEnabled=false
-RunService.RenderStepped:Connect(function()
-    if maxZoomEnabled then cam.CameraType=Enum.CameraType.Custom end
-end)
-
--- ===== Visual: Cloud & All Part Color =====
+-- ===== Visual Tab =====
 local cloudToggle=false
 local cloudColor=Color3.fromRGB(135,206,235)
 local allPartToggle=false
 local allPartColor=Color3.fromRGB(255,255,255)
-
--- 空の Sky オブジェクトを作成
 local sky = workspace:FindFirstChildOfClass("Sky") or Instance.new("Sky", workspace)
 
 RunService.RenderStepped:Connect(function()
     if cloudToggle then
-        -- 空の色を変更
         Lighting.OutdoorAmbient = cloudColor
-        sky.SkyboxBk=""; sky.SkyboxDn=""; sky.SkyboxFt=""; sky.SkyboxLf=""; sky.SkyboxRt=""; sky.SkyboxUp=""
+        sky.SkyboxBk=""; sky.SkyboxFt=""; sky.SkyboxUp=""; sky.SkyboxDn=""; sky.SkyboxLf=""; sky.SkyboxRt=""
     end
     if allPartToggle then
         for _,p in pairs(workspace:GetDescendants()) do
@@ -138,10 +151,13 @@ MainTab:CreateToggle({Name="Noclip", CurrentValue=false, Callback=function(v) no
 MainTab:CreateToggle({Name="Infinity Jump", CurrentValue=false, Callback=function(v) infinityJump=v end})
 MainTab:CreateToggle({Name="WalkLegArmLock", CurrentValue=false, Callback=function(v) walkLock=v end})
 MainTab:CreateToggle({Name="SpeedBoost", CurrentValue=false, Callback=function(v) speedBoost=v end})
-MainTab:CreateSlider({Name="FOV", Range={70,120}, Increment=1, CurrentValue=FOV, Callback=function(v) FOV=v end})
+MainTab:CreateSlider({Name="FOV", Range={60,120}, Increment=1, CurrentValue=FOV, Callback=function(v) FOV=v end})
 MainTab:CreateToggle({Name="MaxZoomCamera", CurrentValue=false, Callback=function(v) maxZoomEnabled=v end})
 
 VisualTab:CreateToggle({Name="Cloud Color Toggle", CurrentValue=false, Callback=function(v) cloudToggle=v end})
 VisualTab:CreateColorPicker({Name="Cloud Color", Default=cloudColor, Callback=function(c) cloudColor=c end})
 VisualTab:CreateToggle({Name="All Part Color Toggle", CurrentValue=false, Callback=function(v) allPartToggle=v end})
 VisualTab:CreateColorPicker({Name="All Part Color", Default=allPartColor, Callback=function(c) allPartColor=c end})
+
+MainTab:CreateToggle({Name="AutoAim", CurrentValue=false, Callback=function(v) AutoAimEnabled=v end})
+MainTab:CreateSlider({Name="AutoAim Range", Range={1,50}, Increment=1, CurrentValue=AutoAimRange, Callback=function(v) AutoAimRange=v end})
