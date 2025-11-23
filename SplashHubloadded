@@ -1,198 +1,94 @@
--- ==================== Rayfield Load ====================
-local success, Rayfield = pcall(function()
-    return loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
-end)
-if not success or not Rayfield then
-    warn("Rayfieldを読み込めませんでした。Executorで実行してください。")
-    return
+-- UIを一時的に隠す（Rayfield 本体の UI）
+local CoreGui = game:GetService("CoreGui")
+local RayUI = CoreGui:WaitForChild("Rayfield", 10)
+
+if RayUI then
+    for _, gui in pairs(RayUI:GetDescendants()) do
+        if gui:IsA("Frame") or gui:IsA("TextLabel") or gui:IsA("ImageLabel") or gui:IsA("ScrollingFrame") then
+            gui.BackgroundTransparency = 1
+            gui.TextTransparency = 1
+            gui.ImageTransparency = 1
+        end
+    end
 end
 
--- ==================== Window ====================
-local Window = Rayfield:CreateWindow({
-    Name = "Splash Hub v1",
-    LoadingTitle = "Splash Hub",
-    LoadingSubtitle = "by pom,",
-    ConfigurationSaving = {Enabled=true, FolderName="MyAwesomeUI"}
-})
-
--- ==================== Services ====================
-local Players = game:GetService("Players")
-local player = Players.LocalPlayer
-local UIS = game:GetService("UserInputService")
-local RunService = game:GetService("RunService")
-local Lighting = game:GetService("Lighting")
-local cam = workspace.CurrentCamera
-
--- ==================== Character ====================
-local char = player.Character or player.CharacterAdded:Wait()
-local hrp = char:WaitForChild("HumanoidRootPart")
-local hum = char:WaitForChild("Humanoid")
-
--- ==================== Vars ====================
-local flying, FlySpeed = false, 50
-local moveKeys = {W=false,A=false,S=false,D=false,Space=false,Shift=false}
-local noclip, infinityJump, walkLock, speedBoost, maxZoomEnabled, ESPEnabled = false,false,false,false,false,false
-local FOV = 60
-local boostAmount = 10
-local cloudToggle, allPartToggle = false, false
-local cloudColor, allPartColor = Color3.fromRGB(135,206,235), Color3.fromRGB(255,255,255)
-
-local AimBotEnabled, SilentAimEnabled, AimRange = false,false,10
-
--- ==================== Input ====================
-UIS.InputBegan:Connect(function(input, gp)
-    if gp then return end
-    local k = input.KeyCode
-    if k==Enum.KeyCode.W then moveKeys.W=true end
-    if k==Enum.KeyCode.A then moveKeys.A=true end
-    if k==Enum.KeyCode.S then moveKeys.S=true end
-    if k==Enum.KeyCode.D then moveKeys.D=true end
-    if k==Enum.KeyCode.Space then moveKeys.Space=true end
-    if k==Enum.KeyCode.LeftShift then moveKeys.Shift=true end
-end)
-UIS.InputEnded:Connect(function(input, gp)
-    if gp then return end
-    local k = input.KeyCode
-    if k==Enum.KeyCode.W then moveKeys.W=false end
-    if k==Enum.KeyCode.A then moveKeys.A=false end
-    if k==Enum.KeyCode.S then moveKeys.S=false end
-    if k==Enum.KeyCode.D then moveKeys.D=false end
-    if k==Enum.KeyCode.Space then moveKeys.Space=false end
-    if k==Enum.KeyCode.LeftShift then moveKeys.Shift=false end
-end)
-
--- ==================== Loops ====================
-RunService.RenderStepped:Connect(function()
-    if hrp and hum then
-        -- Fly
-        if flying then
-            local dir = Vector3.zero
-            local cf = cam.CFrame
-            if moveKeys.W then dir+=cf.LookVector end
-            if moveKeys.S then dir-=cf.LookVector end
-            if moveKeys.A then dir-=cf.RightVector end
-            if moveKeys.D then dir+=cf.RightVector end
-            if moveKeys.Space then dir+=Vector3.yAxis end
-            if moveKeys.Shift then dir-=Vector3.yAxis end
-            hrp.Velocity = (dir.Magnitude>0 and dir.Unit*FlySpeed) or Vector3.zero
-        end
-
-        -- WalkLegArmLock
-        if walkLock then
-            for _,track in pairs(hum:GetPlayingAnimationTracks()) do track:Stop() end
-        end
-
-        -- SpeedBoost
-        hum.WalkSpeed = speedBoost and (16+boostAmount) or 16
-    end
-
-    -- FOV & MaxZoom
-    cam.FieldOfView = FOV
-    if maxZoomEnabled then cam.CameraType = Enum.CameraType.Custom end
-
-    -- Visuals
-    if cloudToggle then
-        Lighting.OutdoorAmbient = cloudColor
-    end
-    if allPartToggle then
-        for _,p in pairs(workspace:GetDescendants()) do
-            if p:IsA("BasePart") then p.Color = allPartColor end
-        end
-    end
-
-    -- ESP
-    if ESPEnabled then
-        for _,p in pairs(Players:GetPlayers()) do
-            if p~=player and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
-                if not workspace:FindFirstChild("ESP_"..p.Name) then
-                    local billboard = Instance.new("BillboardGui")
-                    billboard.Name="ESP_"..p.Name
-                    billboard.Adornee=p.Character.HumanoidRootPart
-                    billboard.Size=UDim2.new(0,50,0,50)
-                    billboard.AlwaysOnTop=true
-                    local text = Instance.new("TextLabel", billboard)
-                    text.Size=UDim2.new(1,0,1,0)
-                    text.BackgroundTransparency=1
-                    text.Text=p.Name
-                    text.TextColor3=Color3.new(1,0,0)
-                    text.TextScaled=true
-                    billboard.Parent=workspace
-                end
-            else
-                local b = workspace:FindFirstChild("ESP_"..p.Name)
-                if b then b:Destroy() end
-            end
-        end
-    else
-        for _,b in pairs(workspace:GetChildren()) do
-            if b.Name:match("^ESP_") then b:Destroy() end
-        end
-    end
-
-    -- AimBot
-    if AimBotEnabled or SilentAimEnabled then
-        local closest,minDist = nil,AimRange
-        for _,p in pairs(Players:GetPlayers()) do
-            if p~=player and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
-                local target = p.Character.HumanoidRootPart
-                local dist = (target.Position - hrp.Position).Magnitude
-                if dist<=minDist then
-                    minDist = dist
-                    closest = target
-                end
-            end
-        end
-        if closest then
-            cam.CFrame = cam.CFrame:Lerp(CFrame.new(cam.CFrame.Position,closest.Position),0.2)
-            if SilentAimEnabled then
-                mouse1click()
-            end
-        end
-    end
-end)
-
--- Noclip
-RunService.Stepped:Connect(function()
-    if noclip and char then
-        for _,v in pairs(char:GetDescendants()) do
-            if v:IsA("BasePart") then v.CanCollide=false end
-        end
-    end
-end)
-
--- Infinity Jump
-UIS.JumpRequest:Connect(function()
-    if infinityJump and hum then hum:ChangeState(Enum.HumanoidStateType.Jumping) end
-end)
-
--- ==================== Delay 2秒でUI作成 ====================
 task.spawn(function()
     task.wait(2)
 
-    -- Tabs
+    ----------------------------
+    --  TAB 作成
+    ----------------------------
     local PlayerTab = Window:CreateTab("Player", 4483362458)
     local VisualTab = Window:CreateTab("Visual", 4483362458)
     local AimTab = Window:CreateTab("Aim", 4483362458)
 
-    -- Player Tab
-    PlayerTab:CreateToggle({Name="Fly", CurrentValue=false, Callback=function(v) flying=v end})
-    PlayerTab:CreateSlider({Name="Fly Speed", Range={10,200}, Increment=1, CurrentValue=FlySpeed, Callback=function(v) FlySpeed=v end})
-    PlayerTab:CreateToggle({Name="Noclip", CurrentValue=false, Callback=function(v) noclip=v end})
-    PlayerTab:CreateToggle({Name="Infinity Jump", CurrentValue=false, Callback=function(v) infinityJump=v end})
-    PlayerTab:CreateToggle({Name="WalkLegArmLock", CurrentValue=false, Callback=function(v) walkLock=v end})
-    PlayerTab:CreateToggle({Name="SpeedBoost", CurrentValue=false, Callback=function(v) speedBoost=v end})
-    PlayerTab:CreateSlider({Name="FOV", Range={60,120}, Increment=1, CurrentValue=FOV, Callback=function(v) FOV=v end})
-    PlayerTab:CreateToggle({Name="MaxZoomCamera", CurrentValue=false, Callback=function(v) maxZoomEnabled=v end})
-    PlayerTab:CreateToggle({Name="ESP", CurrentValue=false, Callback=function(v) ESPEnabled=v end})
+    ----------------------------
+    -- プレイヤー系
+    ----------------------------
+    PlayerTab:CreateToggle({Name="Fly",CurrentValue=false,Callback=function(v)flying=v end})
+    PlayerTab:CreateSlider({Name="Fly Speed",Range={10,200},Increment=1,CurrentValue=FlySpeed,Callback=function(v)FlySpeed=v end})
+    PlayerTab:CreateToggle({Name="Noclip",CurrentValue=false,Callback=function(v)noclip=v end})
+    PlayerTab:CreateToggle({Name="Infinity Jump",CurrentValue=false,Callback=function(v)infinityJump=v end})
+    PlayerTab:CreateToggle({Name="WalkLegArmLock",CurrentValue=false,Callback=function(v)walkLock=v end})
+    PlayerTab:CreateToggle({Name="SpeedBoost",CurrentValue=false,Callback=function(v)speedBoost=v end})
+    PlayerTab:CreateSlider({Name="FOV",Range={60,120},Increment=1,CurrentValue=FOV,Callback=function(v)FOV=v end})
+    PlayerTab:CreateToggle({Name="MaxZoomCamera",CurrentValue=false,Callback=function(v)maxZoomEnabled=v end})
+    PlayerTab:CreateToggle({Name="ESP",CurrentValue=false,Callback=function(v)ESPEnabled=v end})
 
-    -- Visual Tab
-    VisualTab:CreateToggle({Name="Cloud Color Toggle", CurrentValue=false, Callback=function(v) cloudToggle=v end})
-    VisualTab:CreateColorPicker({Name="Cloud Color", Default=cloudColor, Callback=function(c) cloudColor=c end})
-    VisualTab:CreateToggle({Name="All Part Color Toggle", CurrentValue=false, Callback=function(v) allPartToggle=v end})
-    VisualTab:CreateColorPicker({Name="All Part Color", Default=allPartColor, Callback=function(c) allPartColor=c end})
+    ----------------------------
+    -- Visual系
+    ----------------------------
+    VisualTab:CreateToggle({Name="Cloud Color Toggle",CurrentValue=false,Callback=function(v)cloudToggle=v end})
+    VisualTab:CreateColorPicker({Name="Cloud Color",Default=cloudColor,Callback=function(c)cloudColor=c end})
+    VisualTab:CreateToggle({Name="All Part Color Toggle",CurrentValue=false,Callback=function(v)allPartToggle=v end})
+    VisualTab:CreateColorPicker({Name="All Part Color",Default=allPartColor,Callback=function(c)allPartColor=c end})
 
-    -- Aim Tab
-    AimTab:CreateToggle({Name="AimBot", CurrentValue=false, Callback=function(v) AimBotEnabled=v end})
-    AimTab:CreateToggle({Name="Silent Aim", CurrentValue=false, Callback=function(v) SilentAimEnabled=v end})
-    AimTab:CreateSlider({Name="Aim Range", Range={1,50}, Increment=1, CurrentValue=AimRange, Callback=function(v) AimRange=v end})
+    ----------------------------
+    -- Aim系 (全部読み込まれたら UI を表示)
+    ----------------------------
+    local AimBotToggle = AimTab:CreateToggle({
+        Name="AimBot",
+        CurrentValue=false,
+        Callback=function(v) AimBotEnabled=v end
+    })
+
+    local SilentToggle = AimTab:CreateToggle({
+        Name="Silent Aim",
+        CurrentValue=false,
+        Callback=function(v) SilentAimEnabled=v end
+    })
+
+    local AimRangeSlider = AimTab:CreateSlider({
+        Name="Aim Range",
+        Range={1,50},
+        Increment=1,
+        CurrentValue=AimRange,
+        Callback=function(v) AimRange=v end
+    })
+
+    -----------------------------------
+    -- Aim タブの 3つが生成されたら UI 表示
+    -----------------------------------
+    task.wait(0.5) -- 少し待って完全に Rayfield が構築されるのを待つ
+
+    if RayUI then
+        for _, gui in pairs(RayUI:GetDescendants()) do
+            if gui:IsA("Frame") then
+                gui.BackgroundTransparency = 0
+            elseif gui:IsA("TextLabel") then
+                gui.TextTransparency = 0
+            elseif gui:IsA("ImageLabel") then
+                gui.ImageTransparency = 0
+            elseif gui:IsA("ScrollingFrame") then
+                gui.ScrollBarImageTransparency = 0
+                gui.BackgroundTransparency = 0
+            end
+        end
+    end
+
+    Window:Notify({
+        Title = "Aim Ready",
+        Content = "Aim タブが完全に読み込まれたよ！",
+        Duration = 3
+    })
 end)
