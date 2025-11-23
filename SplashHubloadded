@@ -1,5 +1,6 @@
 -- ====================================================================
--- SplashHub: V-GUI 最終安定版 (リスポーン/nilエラー対策)
+-- SplashHub: Rayfield UI 統合版 (リスポーン/ nilエラー対策)
+-- **注意: Rayfieldの読み込みが失敗すると動作しません。**
 -- ====================================================================
 local P = game:GetService("Players").LocalPlayer;
 local UIS = game:GetService("UserInputService");
@@ -7,12 +8,11 @@ local RS = game:GetService("RunService");
 local WS = game:GetService("Workspace");
 local ReplicatedStorage = game:GetService("ReplicatedStorage");
 
--- V-GUIの読み込みは実行前に確認済みと仮定
-local V_GUI_LOADER_URL = "https://raw.githubusercontent.com/vextroid/V-GUI/master/Loader.lua"
-local V_GUI = loadstring(game:HttpGet(V_GUI_LOADER_URL))()
+-- Rayfieldの読み込みを試行
+local Rayfield = loadstring(game:HttpGet("https://raw.githubusercontent.com/Rayfield-Official/Rayfield-Resources/master/Core.lua"))()
 
-if not V_GUI then
-    print("V-GUIの読み込みに失敗しました。コード実行を中断します。")
+if not Rayfield then
+    warn("Rayfieldの読み込みに失敗しました。スクリプトを中断します。")
     return
 end
 
@@ -35,7 +35,9 @@ local isLineExtending = false;
 local currentLinePart = nil;
 local bodyVelocity = nil;
 
-local activeBindings = {}; -- 実行中のRenderStepを管理するテーブル
+local activeBindings = {}; 
+local grabDetectionConnection = nil;
+local failureCount = 0;
 
 -- ユーティリティ関数
 local function bindToRenderStep(name, priority, func)
@@ -53,21 +55,24 @@ end
 
 -- 全てのRunServiceバインドを解除し、飛行やラインを停止
 local function cleanupBindings()
-    stopFlying(true) -- 強制停止
-    stopLineExtension(true) -- 強制停止
+    -- Rayfieldのトグル状態はここでは変更しません。
+    stopFlying(true) 
+    stopLineExtension(true)
+    if grabDetectionConnection and grabDetectionConnection.Connected then
+        grabDetectionConnection:Disconnect();
+        grabDetectionConnection = nil;
+    end
     for name, _ in pairs(activeBindings) do
         RS:UnbindFromRenderStep(name)
         activeBindings[name] = nil
     end
 end
 
--- 通知機能 (修正済み)
+-- 通知機能 (安定性向上のため、前回と同様の堅牢な実装を維持)
 local function showNotification(message, color)
-    -- P.PlayerGuiが存在しない場合は処理を中断
     if not P.PlayerGui or P.Character and not P.Character:FindFirstChildOfClass("Humanoid") then return end
     
     local G = Instance.new("ScreenGui");
-    -- 親設定が失敗した場合（例：まだGUIが初期化されていない）は処理を中断
     if not pcall(function() G.Parent = P.PlayerGui end) then G:Destroy(); return end 
     G.Name = "SplashHubNotify";
 
@@ -173,11 +178,6 @@ local function stopLineExtension(force)
     end
     
     if not force then showNotification("Line拡張 OFF", Color3.fromRGB(255, 150, 150)); end
-    
-    -- V-GUIの状態もリセット（UIが存在する場合）
-    if V_GUI and V_GUI.Window and V_GUI.Window:FindFirstChild("Infinite Grab Distance") then
-        V_GUI.Window:Change("Infinite Grab Distance", false)
-    end
 end
 
 
@@ -209,11 +209,6 @@ local function stopFlying(force)
     if bodyVelocity and bodyVelocity.Parent then pcall(bodyVelocity.Destroy, bodyVelocity); bodyVelocity = nil end;
     
     if not force then showNotification("SplashHub: 飛行 OFF", Color3.fromRGB(255, 100, 100)); end
-    
-    -- V-GUIの状態もリセット
-    if V_GUI and V_GUI.Window and V_GUI.Window:FindFirstChild("Infinite Flight") then
-        V_GUI.Window:Change("Infinite Flight", false)
-    end
 end;
 
 local function startFlying()
@@ -266,18 +261,14 @@ local function updateFlyMovement()
 end;
 
 
--- ラグドール無効化処理 (変更なし)
 local function updateAntiRagdoll()
     local H = P.Character and P.Character:FindFirstChildOfClass("Humanoid");
     if H and H.Parent and H.PlatformStand == true then
          pcall(function() H.PlatformStand = false; end);
-         -- この通知は頻繁なので削除しても良いが、今回は維持
-         -- showNotification("⚡ PlatformStandを即座に解除しました！", Color3.fromRGB(255, 255, 0));
     end
 end;
 
 
--- 掴みオブジェクトの検知と破壊 (変更なし)
 local function setupGrabDetection(rootPart)
     if grabDetectionConnection and grabDetectionConnection.Connected then grabDetectionConnection:Disconnect(); end
     grabDetectionConnection = rootPart.ChildAdded:Connect(function(child)
@@ -290,7 +281,7 @@ local function setupGrabDetection(rootPart)
     end);
 end
 
--- 敵スクリプト無効化機能 (変更なし)
+
 local function disableTargetScript()
     local playerScripts = P:FindFirstChild("PlayerScripts");
     if not playerScripts then return end
@@ -300,57 +291,72 @@ local function disableTargetScript()
     end
 end
 
--- UI構築
-local function createVGui()
-    local Window = V_GUI:Window({
-        title = "SplashHub V-GUI",
-        icon = 4483862788,
-        size = {400, 300},
-        save = {
-            enabled = true,
-            path = "VGuiSplashHub"
-        }
+-- Rayfield UI構築
+local function createRayfieldUI()
+    local Window = Rayfield:CreateWindow({
+        Name = "SplashHub Rayfield",
+        LoadingTitle = "Loading SplashHub",
+        LoadingSubtitle = "Injecting Modules",
+        ConfigurationSaving = {
+            Enabled = true,
+            FolderName = nil,
+            FileName = "RayfieldSplashHub"
+        },
+        Keybind = Enum.KeyCode.RightControl
     })
 
-    local MainTab = Window:Tab("Player & Flight")
-    local ExploitTab = Window:Tab("Grab Bypass")
+    local MainTab = Window:CreateTab("Player & Flight", 4483862788)
+    local ExploitTab = Window:CreateTab("Grab Bypass", 4483862788)
 
-    local FlightSection = MainTab:Section("Movement")
-    FlightSection:Toggle("Infinite Flight", function(toggled)
-        if toggled then
-            startFlying()
-        else
-            stopFlying()
-        end
-    end)
-    
-    FlightSection:Slider("Fly Speed", 
-    {
-        min = 1, 
-        max = 150, 
-        value = FLY_SPEED, 
-        callback = function(value) 
-            FLY_SPEED = value 
-        end
+    local FlightSection = MainTab:CreateSection("Movement")
+    FlightSection:CreateToggle({
+        Name = "Infinite Flight",
+        CurrentValue = isFlying,
+        Flag = "InfiniteFlightFlag",
+        Callback = function(toggled)
+            if toggled then
+                startFlying()
+            else
+                stopFlying()
+            end
+        end,
     })
 
-    local GrabSection = ExploitTab:Section("Line Exploitation")
-    GrabSection:Toggle("Infinite Grab Distance", function(toggled)
-        if toggled then
-            startLineExtension()
-        else
-            stopLineExtension()
-        end
-    end)
-    
-    local AntiCheatSection = MainTab:Section("Anti-Detection")
-    AntiCheatSection:Toggle("Anti-Ragdoll (Auto-Clear)", function(toggled)
-        -- ロジックは常に実行されています。
-    end)
-    
-    -- 初期値設定
-    Window:Change("Infinite Grab Distance", isLineExtending)
-    Window:Change("Infinite Flight", isFlying)
+    FlightSection:CreateSlider({
+        Name = "Fly Speed",
+        Range = {1, 150},
+        Increment = 5,
+        Suffix = "Studs/s",
+        CurrentValue = FLY_SPEED,
+        Flag = "FlySpeedFlag",
+        Callback = function(value)
+            FLY_SPEED = value
+        end,
+    })
+
+    local GrabSection = ExploitTab:CreateSection("Line Exploitation")
+    GrabSection:CreateToggle({
+        Name = "Infinite Grab Distance",
+        CurrentValue = isLineExtending,
+        Flag = "InfiniteGrabFlag",
+        Callback = function(toggled)
+            if toggled then
+                startLineExtension()
+            else
+                stopLineExtension()
+            end
+        end,
+    })
+
+    local AntiCheatSection = MainTab:CreateSection("Anti-Detection")
+    AntiCheatSection:CreateToggle({
+        Name = "Anti-Ragdoll (Auto-Clear)",
+        CurrentValue = true,
+        Flag = "AntiRagdollFlag",
+        Callback = function(toggled)
+            -- ロジックは常に実行されています
+        end,
+    })
 end
 
 -- メイン初期化ロジック
@@ -370,15 +376,18 @@ local function setupCharacter(character)
 end
 
 local function initialize()
+    -- キャラクターがロードされるのを待つ
+    local character = P.Character or P.CharacterAdded:Wait()
+    
     -- 最初の起動時のみフックとUIを作成
     hookGrabEvents();
     disableTargetScript();
-    createVGui();
-    showNotification("SplashHub V-GUI 起動成功！", Color3.fromRGB(0, 255, 0));
+    createRayfieldUI();
+    showNotification("SplashHub Rayfield 起動成功！", Color3.fromRGB(0, 255, 0));
     
     -- キャラクターがリスポーンするたびにセットアップを実行
     P.CharacterAdded:Connect(setupCharacter);
-    if P.Character then setupCharacter(P.Character) end;
+    setupCharacter(character);
 end
 
 pcall(initialize)
