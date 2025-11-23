@@ -12,12 +12,14 @@ local Window = Rayfield:CreateWindow({
 })
 
 local MainTab = Window:CreateTab("Player", 4483362458)
+local VisualTab = Window:CreateTab("Visual", 4483362458) -- Playerと同じアイコン
 
 -- Services & Player
 local player = game.Players.LocalPlayer
 local cam = workspace.CurrentCamera
 local UIS = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
+local Lighting = game:GetService("Lighting")
 
 -- Player Variables
 local char, hrp, hum
@@ -31,7 +33,7 @@ end
 player.CharacterAdded:Connect(updateCharacter)
 if player.Character then updateCharacter(player.Character) end
 
--- Fly
+-- ===== Fly =====
 local flying = false
 local FlySpeed = 50
 local moveKeys = {W=false, A=false, S=false, D=false, Space=false, Shift=false}
@@ -69,7 +71,7 @@ RunService.RenderStepped:Connect(function()
     end
 end)
 
--- Noclip
+-- ===== Noclip =====
 local noclip = false
 RunService.Stepped:Connect(function()
     if noclip and char then
@@ -79,13 +81,13 @@ RunService.Stepped:Connect(function()
     end
 end)
 
--- Infinity Jump
+-- ===== Infinity Jump =====
 local infinityJump = false
 UIS.JumpRequest:Connect(function()
     if infinityJump and hum then hum:ChangeState(Enum.HumanoidStateType.Jumping) end
 end)
 
--- WalkLegArmLock
+-- ===== WalkLegArmLock =====
 local walkLock = false
 RunService.RenderStepped:Connect(function()
     if walkLock and hum then
@@ -93,36 +95,25 @@ RunService.RenderStepped:Connect(function()
     end
 end)
 
--- SpeedBoost
+-- ===== SpeedBoost =====
 local speedBoost = false
 local boostAmount = 10
 RunService.RenderStepped:Connect(function()
     if hum then
-        if speedBoost then
-            hum.WalkSpeed = normalWalkSpeed + boostAmount
-        else
-            hum.WalkSpeed = normalWalkSpeed
-        end
+        hum.WalkSpeed = (speedBoost and (normalWalkSpeed + boostAmount)) or normalWalkSpeed
     end
 end)
 
--- FOV / MaxZoomCamera
+-- ===== FOV / MaxZoomCamera =====
 local currentFOV = 70
 local maxZoomEnabled = false
 cam.FieldOfView = currentFOV
-MainTab:CreateSlider({
-    Name="FOV",
-    Range={70,200},
-    Increment=1,
-    CurrentValue=currentFOV,
-    Callback=function(v) currentFOV=v end
-})
 RunService.RenderStepped:Connect(function()
     cam.FieldOfView = currentFOV
     if maxZoomEnabled then cam.CameraType = Enum.CameraType.Custom end
 end)
 
--- ESP
+-- ===== ESP =====
 local espEnabled = false
 local espBoxes = {}
 local function getPrimaryPart(c)
@@ -158,7 +149,7 @@ RunService.RenderStepped:Connect(function()
     end
 end)
 
--- AutoAim
+-- ===== AutoAim =====
 local autoAim = false
 local autoAimActive = false
 local aimRadius = 10
@@ -204,7 +195,8 @@ RunService.RenderStepped:Connect(function()
     end
 end)
 
--- Rayfield UI
+-- ===== Rayfield UI =====
+-- Player Tab
 MainTab:CreateToggle({Name="Fly（ON/OFF）", CurrentValue=false, Callback=function(v) flying=v end})
 MainTab:CreateSlider({Name="Fly Speed", Range={10,200}, Increment=1, CurrentValue=FlySpeed, Callback=function(v) FlySpeed=v end})
 MainTab:CreateToggle({Name="Noclip（壁抜け ON/OFF）", CurrentValue=false, Callback=function(v) noclip=v end})
@@ -214,3 +206,28 @@ MainTab:CreateToggle({Name="MaxZoomCamera（ON/OFF）", CurrentValue=false, Call
 MainTab:CreateToggle({Name="WalkLegArmLock（ON/OFF）", CurrentValue=false, Callback=function(v) walkLock=v end})
 MainTab:CreateToggle({Name="SpeedBoost（ON/OFF）", CurrentValue=false, Callback=function(v) speedBoost=v end})
 MainTab:CreateToggle({Name="AutoAim（ON/OFF）", CurrentValue=false, Callback=function(v) autoAim=v autoAimActive=v end})
+
+-- Visual Tab
+local cloudColorToggle = false
+local cloudColor = Color3.fromRGB(135,206,235)
+VisualTab:CreateToggle({Name="Cloud Color Toggle", CurrentValue=false, Callback=function(v) cloudColorToggle=v end})
+VisualTab:CreateColorPicker({Name="Cloud Color", Default=cloudColor, Callback=function(c) cloudColor=c end})
+
+local allPartColorToggle = false
+local allPartColor = Color3.fromRGB(255,255,255)
+VisualTab:CreateToggle({Name="All Part Color Toggle", CurrentValue=false, Callback=function(v) allPartColorToggle=v end})
+VisualTab:CreateColorPicker({Name="All Part Color", Default=allPartColor, Callback=function(c) allPartColor=c end})
+
+-- RenderStepped 更新
+RunService.RenderStepped:Connect(function()
+    if cloudColorToggle then
+        Lighting.OutdoorAmbient = cloudColor
+    end
+    if allPartColorToggle then
+        for _, p in pairs(workspace:GetDescendants()) do
+            if p:IsA("BasePart") then
+                p.Color = allPartColor
+            end
+        end
+    end
+end)
