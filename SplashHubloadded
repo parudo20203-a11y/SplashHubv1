@@ -10,6 +10,7 @@ local Window = Rayfield:CreateWindow({
 -- Tabs
 local MainTab = Window:CreateTab("Player", 4483362458)
 local VisualTab = Window:CreateTab("Visual", 4483362458)
+local AimTab = Window:CreateTab("Aim", 4483362458)
 
 -- Services
 local player = game.Players.LocalPlayer
@@ -49,7 +50,12 @@ ESPFolder.Name="ESPFolder"
 local AutoAimEnabled=false
 local AutoAimRange=10
 
--- ===== Fly movement =====
+-- Aim variables
+local AimBotEnabled=false
+local SilentAimEnabled=false
+local AimRange=10
+
+-- ===== Key Input =====
 UIS.InputBegan:Connect(function(input, gp)
     if gp then return end
     local k = input.KeyCode
@@ -73,7 +79,7 @@ UIS.InputEnded:Connect(function(input, gp)
     if k==Enum.KeyCode.LeftShift then moveKeys.Shift=false end
 end)
 
--- ===== Main RenderStepped =====
+-- ===== RenderStepped =====
 RunService.RenderStepped:Connect(function()
     if hrp and hum then
         -- Fly
@@ -110,6 +116,34 @@ RunService.RenderStepped:Connect(function()
                     cam.CFrame = CFrame.new(cam.CFrame.Position, target.Position)
                     mouse1click()
                     AutoAimEnabled=false
+                    break
+                end
+            end
+        end
+    end
+
+    -- AimBot
+    if AimBotEnabled and hrp then
+        for _,p in pairs(game.Players:GetPlayers()) do
+            if p~=player and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+                local target = p.Character.HumanoidRootPart
+                if (target.Position - hrp.Position).Magnitude <= AimRange then
+                    cam.CFrame = CFrame.new(cam.CFrame.Position, target.Position)
+                    mouse1click()
+                    break
+                end
+            end
+        end
+    end
+
+    -- Silent Aim
+    if SilentAimEnabled and hrp then
+        for _,p in pairs(game.Players:GetPlayers()) do
+            if p~=player and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+                local target = p.Character.HumanoidRootPart
+                if (target.Position - hrp.Position).Magnitude <= AimRange then
+                    cam.CFrame = CFrame.new(cam.CFrame.Position, target.Position)
+                    -- Flingライン処理: 実際のゲーム依存
                     break
                 end
             end
@@ -177,6 +211,7 @@ RunService.RenderStepped:Connect(function()
 end)
 
 -- ===== Rayfield UI =====
+-- Player Tab
 MainTab:CreateToggle({Name="Fly", CurrentValue=false, Callback=function(v) flying=v end})
 MainTab:CreateSlider({Name="Fly Speed", Range={10,200}, Increment=1, CurrentValue=FlySpeed, Callback=function(v) FlySpeed=v end})
 MainTab:CreateToggle({Name="Noclip", CurrentValue=false, Callback=function(v) noclip=v end})
@@ -189,7 +224,13 @@ MainTab:CreateToggle({Name="ESP", CurrentValue=false, Callback=function(v) ESPEn
 MainTab:CreateToggle({Name="AutoAim", CurrentValue=false, Callback=function(v) AutoAimEnabled=v end})
 MainTab:CreateSlider({Name="AutoAim Range", Range={1,50}, Increment=1, CurrentValue=AutoAimRange, Callback=function(v) AutoAimRange=v end})
 
+-- Visual Tab
 VisualTab:CreateToggle({Name="Cloud Color Toggle", CurrentValue=false, Callback=function(v) cloudToggle=v end})
 VisualTab:CreateColorPicker({Name="Cloud Color", Default=cloudColor, Callback=function(c) cloudColor=c end})
 VisualTab:CreateToggle({Name="All Part Color Toggle", CurrentValue=false, Callback=function(v) allPartToggle=v end})
 VisualTab:CreateColorPicker({Name="All Part Color", Default=allPartColor, Callback=function(c) allPartColor=c end})
+
+-- Aim Tab
+AimTab:CreateToggle({Name="AimBot", CurrentValue=false, Callback=function(v) AimBotEnabled=v end})
+AimTab:CreateToggle({Name="Silent Aim", CurrentValue=false, Callback=function(v) SilentAimEnabled=v end})
+AimTab:CreateSlider({Name="Aim Range", Range={1,50}, Increment=1, CurrentValue=AimRange, Callback=function(v) AimRange=v end})
