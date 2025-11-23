@@ -1,6 +1,3 @@
--- **注意:** ExecutorにRayfieldが組み込まれていない場合は、以下の読み込み行が必要です。
-local Rayfield = loadstring(game:HttpGet("https://raw.githubusercontent.com/Rayfield-Official/Rayfield-Resources/master/Core.lua"))()
-
 -- 1. Windowの作成
 local Window = Rayfield:CreateWindow({
     Name = "Fling and Grab Enhancer",
