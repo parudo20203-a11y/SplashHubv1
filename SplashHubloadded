@@ -5,7 +5,7 @@ task.wait(2)
 
 -- load Rayfield
 local ok, Rayfield = pcall(function()
-    return loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
+　　local Rayfield = loadstring(game:HttpGet("https://raw.githubusercontent.com/shlexware/Rayfield/main/source"))()
 end)
 if not ok or not Rayfield then
     warn("Rayfieldを読み込めませんでした。Executorで実行してください。")
