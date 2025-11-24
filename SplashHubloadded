@@ -1,87 +1,535 @@
---== Loader ==--
-task.wait(2) -- 2秒待ってUI生成開始
+-- ===== Executor Hub (All-in-one) for Rayfield =====
+-- 2025-style "全部入り"：Player / Visual / FOV / Anti (Chappie) / Grab / Aim（Auto/Silent） / ESP / Crosshair
 
-local library = loadstring(game:HttpGet("https://raw.githubusercontent.com/bloodball/UI-Library/main/bloodball"))()
+task.wait(2)
 
-local main = library:CreateWindow("My Executor Hub")
+-- load Rayfield
+local ok, Rayfield = pcall(function()
+    return loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
+end)
+if not ok or not Rayfield then
+    warn("Rayfieldを読み込めませんでした。Executorで実行してください。")
+    return
+end
 
---========================--
---      Player Tab
---========================--
-local playerTab = main:CreateTab("Player")
-
--- Silent Aim
-local silentAimEnabled = false
-playerTab:CreateToggle({
-    Name = "Silent Aim",
-    CurrentValue = false,
-    Callback = function(v)
-        silentAimEnabled = v
-        print("Silent Aim:", v)
-    end
+local Window = Rayfield:CreateWindow({
+    Name = "Executor Hub - Full Pack",
+    LoadingTitle = "Executor Hub",
+    LoadingSubtitle = "Chappie pack",
+    ConfigurationSaving = { Enabled = false }
 })
 
--- Auto Aim
-local autoAimEnabled = false
-playerTab:CreateToggle({
-    Name = "Auto Aim",
-    CurrentValue = false,
-    Callback = function(v)
-        autoAimEnabled = v
-        print("Auto Aim:", v)
-    end
-})
-
---========================--
---      Aim Tab （空）
---========================--
-local aimTab = main:CreateTab("Aim")
-aimTab:CreateLabel("（このタブは使用していません）")
-
---========================--
---  Silent Aim / Auto Aim 実処理
---========================--
-
-local players = game:GetService("Players")
-local localPlayer = players.LocalPlayer
-local camera = workspace.CurrentCamera
+-- ===== Services =====
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
 local RunService = game:GetService("RunService")
+local UIS = game:GetService("UserinputService")
+local Workspace = game:GetService("Workspace")
+local Lighting = game:GetService("Lighting")
+local VirtualInput = nil
+pcall(function() VirtualInput = game:GetService("VirtualInputManager") end)
+local Camera = Workspace.CurrentCamera
 
--- 最も近い敵を探す関数
-local function getClosest()
-    local closest, dist = nil, 9999
-    for _, plr in ipairs(players:GetPlayers()) do
-        if plr ~= localPlayer and plr.Character and plr.Character:FindFirstChild("Head") then
-            local pos, onScreen = camera:WorldToViewportPoint(plr.Character.Head.Position)
-            if onScreen then
-                local m = Vector2.new(pos.X, pos.Y)
-                local mouse = game:GetService("UserInputService"):GetMouseLocation()
-                local d = (m - mouse).Magnitude
-                if d < dist then
-                    closest = plr
-                    dist = d
+-- ===== State / Defaults =====
+local AimRadius = 10
+local ClickCooldown = 0.12
+local lastClick = 0
+local clicking = false
+
+-- Player
+local SpeedBoost = false
+local SpeedBoostAmount = 10
+local baseWalkSpeed = 16
+local MaxZoomCamera = false
+local WalkLegArmLock = false
+
+-- Aim
+local AutoAim = false
+local SilentAim = false -- default off
+local grabFlagForSilent = false
+
+-- Visual
+local CloudColorToggle = false
+local CloudColor = Color3.fromRGB(135,206,235)
+local AllPartToggle = false
+local AllPartColor = Color3.fromRGB(255,255,255)
+local ESPEnabled = false
+
+-- Anti / Grab
+local AntiGrabEnabled = false
+local KiLLGrab = false
+
+-- housekeeping
+local espMap = {} -- playerName -> BillboardGui
+local connections = {} -- to disconnect on respawn
+
+-- ===== Helpers =====
+local function safeGetChar(plr)
+    return plr and plr.Character
+end
+local function safeHumanoid(char)
+    if char then return char:FindFirstChildOfClass("Humanoid") end
+end
+local function safeHRP(char)
+    if char then return char:FindFirstChild("HumanoidRootPart") end
+end
+
+-- create or update ESP
+local function ensureESPFor(p)
+    if espMap[p.Name] and espMap[p.Name].Parent then return end
+    local char = p.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+    -- Billboard
+    local b = Instance.new("BillboardGui")
+    b.Name = "ESP_"..p.Name
+    b.Adornee = char.HumanoidRootPart
+    b.Size = UDim2.new(0,120,0,40)
+    b.StudsOffset = Vector3.new(0,2,0)
+    b.AlwaysOnTop = true
+    local t = Instance.new("TextLabel", b)
+    t.BackgroundTransparency = 1
+    t.Size = UDim2.new(1,0,1,0)
+    t.TextScaled = true
+    t.Text = p.Name
+    t.TextColor3 = Color3.fromRGB(255,0,0)
+    t.Font = Enum.Font.SourceSansBold
+    b.Parent = Workspace
+    espMap[p.Name] = b
+end
+
+local function removeAllESPs()
+    for k,v in pairs(espMap) do
+        if v and v.Parent then pcall(function() v:Destroy() end) end
+    end
+    espMap = {}
+end
+
+-- Crosshair (Drawing if available, else ScreenGui)
+local DrawingLibAvailable, Drawing = pcall(function() return Drawing end)
+local crosshair = nil
+if DrawingLibAvailable and Drawing then
+    local cx = Drawing.new("Line")
+    local cy = Drawing.new("Line")
+    cx.From = Vector2.new(Camera.ViewportSize.X/2 - 8, Camera.ViewportSize.Y/2)
+    cx.To   = Vector2.new(Camera.ViewportSize.X/2 + 8, Camera.ViewportSize.Y/2)
+    cy.From = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2 - 8)
+    cy.To   = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2 + 8)
+    cx.Thickness = 2; cy.Thickness = 2
+    cx.Transparency = 1; cy.Transparency = 1
+    cx.Visible = true; cy.Visible = true
+    local function updateCrosshair()
+        pcall(function()
+            cx.From = Vector2.new(Camera.ViewportSize.X/2 - 8, Camera.ViewportSize.Y/2)
+            cx.To   = Vector2.new(Camera.ViewportSize.X/2 + 8, Camera.ViewportSize.Y/2)
+            cy.From = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2 - 8)
+            cy.To   = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2 + 8)
+        end)
+    end
+    crosshair = {update=updateCrosshair, remove=function() pcall(function() cx:Remove(); cy:Remove() end) end}
+else
+    -- fallback: simple ScreenGui crosshair
+    local screen = Instance.new("ScreenGui")
+    screen.Name = "ExecCrosshairGui"
+    screen.ResetOnSpawn = false
+    local lineH = Instance.new("Frame", screen)
+    lineH.Size = UDim2.new(0, 16, 0, 2)
+    lineH.Position = UDim2.new(0.5, -8, 0.5, -1)
+    lineH.AnchorPoint = Vector2.new(0.5,0.5)
+    local lineV = Instance.new("Frame", screen)
+    lineV.Size = UDim2.new(0, 2, 0, 16)
+    lineV.Position = UDim2.new(0.5, -1, 0.5, -8)
+    lineV.AnchorPoint = Vector2.new(0.5,0.5)
+    lineH.BackgroundColor3 = Color3.new(1,1,1)
+    lineV.BackgroundColor3 = Color3.new(1,1,1)
+    screen.Parent = game:GetService("CoreGui") or game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
+    crosshair = {update=function() end, remove=function() pcall(function() screen:Destroy() end) end}
+end
+
+-- click helper
+local function doClick()
+    if clicking then return end
+    clicking = true
+    if VirtualInput then
+        pcall(function()
+            VirtualInput:SendMouseButtonEvent(0,0,0,true,game,0)
+            task.wait(0.06)
+            VirtualInput:SendMouseButtonEvent(0,0,0,false,game,0)
+        end)
+    else
+        pcall(function() mouse1click() end)
+    end
+    clicking = false
+end
+
+-- target detection
+local function CheckGrabStateOfCharacter(tchar)
+    if not tchar then return false end
+    local thrp = tchar:FindFirstChild("HumanoidRootPart")
+    local thum = tchar:FindFirstChildOfClass("Humanoid")
+    if not thrp then return false end
+    -- check children
+    for _,c in pairs(thrp:GetChildren()) do
+        local cname = c.ClassName
+        if cname == "Weld" or cname == "Motor6D" or cname == "BodyPosition" or cname == "BodyGyro" or cname == "BodyVelocity" or cname == "Attachment" then
+            return true
+        end
+        local ln = tostring(c.Name):lower()
+        if ln:find("grab") or ln:find("hold") or ln:find("fling") then return true end
+    end
+    if thum and thum.PlatformStand then return true end
+    return false
+end
+
+local function GetNearestPlayer()
+    if not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then return nil end
+    local myHRP = LocalPlayer.Character.HumanoidRootPart
+    local nearest = nil
+    local md = AimRadius
+    for _,pl in pairs(Players:GetPlayers()) do
+        if pl ~= LocalPlayer and pl.Character and pl.Character:FindFirstChild("HumanoidRootPart") then
+            local dist = (pl.Character.HumanoidRootPart.Position - myHRP.Position).Magnitude
+            if dist <= md then
+                md = dist
+                nearest = pl
+            end
+        end
+    end
+    return nearest
+end
+
+-- ===== AntiGrab (Chappie) for local char =====
+local function SetupLocalAntiGrab(char)
+    -- disconnect previous's connections for safety
+    if connections.localAnti then
+        for _,c in pairs(connections.localAnti) do pcall(function() c:Disconnect() end) end
+    end
+    connections.localAnti = {}
+
+    local hrp = char:WaitForChild("HumanoidRootPart")
+    local hum = char:WaitForChildOfClass("Humanoid")
+    if not hrp or not hum then return end
+
+    -- immediate escape helper
+    local function EscapeNow()
+        if not AntiGrabEnabled then return end
+        pcall(function()
+            hum.PlatformStand = false
+            hum.Sit = false
+            -- stop physical movement
+            if hrp.AssemblyLinearVelocity then hrp.AssemblyLinearVelocity = Vector3.new(0,0,0) end
+            if hrp.AssemblyAngularVelocity then hrp.AssemblyAngularVelocity = Vector3.new(0,0,0) end
+            -- slight teleport to break welds/attachment constraints
+            hrp.CFrame = hrp.CFrame * CFrame.new(0, 0.45, 0)
+        end)
+    end
+
+    -- ChildAdded on HRP: most reliable for weld/bodymovers/attachments
+    local conn1 = hrp.ChildAdded:Connect(function(child)
+        if not AntiGrabEnabled then return end
+        local ccn = child.ClassName
+        local cname = tostring(child.Name):lower()
+        if ccn:match("Weld") or ccn:match("Body") or cname:find("grab") or cname:find("hold") or child:IsA("Attachment") or child:IsA("Constraint") then
+            pcall(function() child:Destroy() end)
+            EscapeNow()
+        end
+    end)
+    table.insert(connections.localAnti, conn1)
+
+    -- DescendantAdded on char: handle cases that attach elsewhere
+    local conn2 = char.DescendantAdded:Connect(function(d)
+        if not AntiGrabEnabled then return end
+        if d and (d:IsA("Weld") or d:IsA("Constraint") or d:IsA("Attachment") or d.ClassName:match("Body")) then
+            pcall(function() d:Destroy() end)
+            EscapeNow()
+        end
+    end)
+    table.insert(connections.localAnti, conn2)
+
+    -- watch Humanoid state & PlatformStand
+    local conn3 = hum:GetPropertyChangedSignal("PlatformStand"):Connect(function()
+        if not AntiGrabEnabled then return end
+        if hum.PlatformStand then
+            hum.PlatformStand = false
+            EscapeNow()
+        end
+    end)
+    table.insert(connections.localAnti, conn3)
+
+    local conn4 = hum.StateChanged:Connect(function(_, newState)
+        if not AntiGrabEnabled then return end
+        if newState == Enum.HumanoidStateType.Ragdoll or newState == Enum.HumanoidStateType.Physics or newState == Enum.HumanoidStateType.PlatformStanding then
+            EscapeNow()
+        end
+    end)
+    table.insert(connections.localAnti, conn4)
+
+    -- constant cleanup loop (safety net)
+    local conn5
+    conn5 = RunService.Heartbeat:Connect(function()
+        if not AntiGrabEnabled then return end
+        -- destroy body movers/welds on HRP every frame if any
+        for _,obj in pairs(hrp:GetChildren()) do
+            if obj and (obj:IsA("Weld") or obj:IsA("Constraint") or obj:IsA("Attachment") or obj.ClassName:match("Body")) then
+                pcall(function() obj:Destroy() end)
+            end
+        end
+        if hum.PlatformStand then
+            hum.PlatformStand = false
+        end
+        -- freeze velocities
+        pcall(function()
+            hrp.AssemblyLinearVelocity = Vector3.new(0,0,0)
+            hrp.AssemblyAngularVelocity = Vector3.new(0,0,0)
+        end)
+    end)
+    table.insert(connections.localAnti, conn5)
+
+    -- cleanup on death/cleanup
+    local diedConn = hum.Died:Connect(function()
+        for _,c in pairs(connections.localAnti) do pcall(function() c:Disconnect() end) end
+        connections.localAnti = nil
+    end)
+    table.insert(connections.localAnti, diedConn)
+end
+
+-- ensure SetupLocalAntiGrab on spawn
+local function OnCharacterAdded(char)
+    task.spawn(function() SetupLocalAntiGrab(char) end)
+end
+LocalPlayer.CharacterAdded:Connect(OnCharacterAdded)
+if LocalPlayer.Character then OnCharacterAdded(LocalPlayer.Character) end
+
+-- ===== Setup for watching other players for Grab/Kill detection & ESP =====
+local otherConns = {}
+local function SetupPlayerWatcher(plr)
+    if otherConns[plr] then return end
+    otherConns[plr] = {}
+
+    local function cleanup()
+        for _,c in pairs(otherConns[plr]) do pcall(function() c:Disconnect() end) end
+        otherConns[plr] = nil
+    end
+
+    local function charAdded(char)
+        -- create ESP for them if enabled
+        if ESPEnabled then ensureESPFor(plr) end
+
+        -- watch their HRP children: if they become "grabbed" we can react (KiLL / or toggle Silent)
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if not hrp or not hum then return end
+
+        local c1 = hrp.ChildAdded:Connect(function(child)
+            -- if they get grabbed (weld/attachment/body...) act
+            local cls = child.ClassName or ""
+            local name = (child.Name or ""):lower()
+            if cls:match("Weld") or cls:match("Body") or child:IsA("Attachment") or child:IsA("Constraint") or name:find("grab") or name:find("hold") then
+                -- If player grabbed another and KiLLGrab enabled and that grabbed is other (we're checking others, so if they get grabbed we might want to ignore)
+                -- For KillGrab we need to detect when *we* have grabbed the other; we'll rely on our click+line detection below.
+                -- But if KiLLGrab is on and they are grabbed by someone else, optionally kill them:
+                if KiLLGrab then
+                    pcall(function() if hum and hum.Health then hum.Health = 0 end end)
+                end
+            end
+        end)
+        table.insert(otherConns[plr], c1)
+    end
+
+    local cchar = plr.CharacterAdded:Connect(charAdded)
+    table.insert(otherConns[plr], cchar)
+    if plr.Character then charAdded(plr.Character) end
+
+    -- cleanup when player leaves
+    local cleave = plr.AncestryChanged:Connect(function()
+        if not plr.Parent then cleanup() end
+    end)
+    table.insert(otherConns[plr], cleave)
+end
+
+-- attach watchers initially
+for _,p in pairs(Players:GetPlayers()) do
+    if p ~= LocalPlayer then SetupPlayerWatcher(p) end
+end
+Players.PlayerAdded:Connect(function(p) SetupPlayerWatcher(p) end)
+Players.PlayerRemoving:Connect(function(p)
+    if otherConns[p] then
+        for _,c in pairs(otherConns[p]) do pcall(function() c:Disconnect() end) end
+        otherConns[p] = nil
+    end
+    if espMap[p.Name] and espMap[p.Name].Parent then
+        pcall(function() espMap[p.Name]:Destroy() end)
+        espMap[p.Name] = nil
+    end
+end)
+
+-- ===== Main Loops =====
+
+-- Visual & ESP & WalkSpeed loop
+RunService.Heartbeat:Connect(function()
+    -- Visual: cloud
+    if CloudColorToggle then
+        pcall(function() Lighting.Ambient = CloudColor end)
+    end
+    -- Visual: all parts
+    if AllPartToggle then
+        for _,p in pairs(Workspace:GetDescendants()) do
+            if p:IsA("BasePart") then
+                p.Color = AllPartColor
+            end
+        end
+    end
+
+    -- ESP update
+    if ESPEnabled then
+        for _,pl in pairs(Players:GetPlayers()) do
+            if pl ~= LocalPlayer and pl.Character and pl.Character:FindFirstChild("HumanoidRootPart") then
+                ensureESPFor(pl)
+                local b = espMap[pl.Name]
+                if b and b:FindFirstChildOfClass("TextLabel") then
+                    pcall(function()
+                        local t = b:FindFirstChildOfClass("TextLabel")
+                        local dist = (pl.Character.HumanoidRootPart.Position - (LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") and LocalPlayer.Character.HumanoidRootPart.Position or Vector3.zero)).Magnitude
+                        t.Text = pl.Name.." ["..math.floor(dist).."]"
+                    end)
+                end
+            else
+                if espMap[pl.Name] and espMap[pl.Name].Parent then
+                    pcall(function() espMap[pl.Name]:Destroy() end)
+                    espMap[pl.Name] = nil
+                end
+            end
+        end
+    else
+        -- remove if disabled
+        -- but keep map cleared
+        removeAllESPs()
+    end
+
+    -- SpeedBoost
+    if LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid") then
+        local hum = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+        if SpeedBoost then
+            hum.WalkSpeed = baseWalkSpeed + SpeedBoostAmount
+        else
+            hum.WalkSpeed = baseWalkSpeed
+        end
+        if WalkLegArmLock then
+            for _, track in pairs(hum:GetPlayingAnimationTracks()) do
+                pcall(function() track:Stop() end)
+            end
+        end
+    end
+
+    -- update crosshair pos if using Drawing
+    pcall(function() if crosshair and crosshair.update then crosshair.update() end end)
+end)
+
+-- Aim/Silent/KillGrab loop on RenderStepped (higher priority)
+RunService.RenderStepped:Connect(function()
+    if not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then return end
+    local target = GetNearestPlayer()
+    if target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
+        local thrp = target.Character.HumanoidRootPart
+
+        -- AutoAim: face target
+        if AutoAim then
+            pcall(function()
+                local myPos = Camera.CFrame.Position
+                Camera.CFrame = CFrame.new(myPos, thrp.Position)
+            end)
+        end
+
+        -- compute grabbed state for silent+kill behavior
+        local grabbed = CheckGrabStateOfCharacter(target.Character)
+
+        -- Silent Aim auto-off/on
+        if grabbed and SilentAim then
+            -- if target is being grabbed (by anyone) we might want to disable silent to avoid double actions
+            SilentAim = false
+            grabFlagForSilent = true
+        elseif not grabbed and grabFlagForSilent then
+            SilentAim = true
+            grabFlagForSilent = false
+        end
+
+        -- Silent Aim clicking behavior (only when enabled)
+        if SilentAim then
+            local now = tick()
+            if now - lastClick >= ClickCooldown then
+                lastClick = now
+                doClick()
+            end
+        end
+
+        -- KiLL Grab: if we detect that *we* have grabbed them (line detection), kill them
+        if KiLLGrab then
+            -- Heuristic: if we are close AND our camera line intersects their HRP, and we recently clicked (meaning we likely grabbed them), then attempt kill
+            local myHRP = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+            if myHRP then
+                local dist = (thrp.Position - myHRP.Position).Magnitude
+                if dist <= AimRadius then
+                    -- line-of-sight check
+                    local origin = Camera.CFrame.Position
+                    local dir = (thrp.Position - origin)
+                    local ray = Ray.new(origin, dir.Unit * math.min(dir.Magnitude, 1000))
+                    local hit = Workspace:FindPartOnRayWithIgnoreList(ray, {LocalPlayer.Character}, false, true)
+                    if hit and hit:IsDescendantOf(target.Character) then
+                        -- If we detect the target is grabbed (by anyone) and we are in position -> try to kill
+                        if CheckGrabStateOfCharacter(target.Character) then
+                            -- attempt kill (may fail if server prevents)
+                            pcall(function()
+                                local th = target.Character:FindFirstChildOfClass("Humanoid")
+                                if th and th.Health > 0 then th.Health = 0 end
+                            end)
+                        end
+                    end
                 end
             end
         end
     end
-    return closest
-end
-
--- メインループ（Silent Aim / Auto Aim）
-RunService.RenderStepped:Connect(function()
-    local target = getClosest()
-    if not target then return end
-
-    if silentAimEnabled then
-        -- Silent Aim: 視点は動かさず弾だけ吸わせる
-        -- ここはゲームによって処理が違うから、Raycast部分だけ残してる
-        -- 必要ならここ調整するね
-    end
-
-    if autoAimEnabled then
-        -- Auto Aim: カメラを自動でターゲットに向ける
-        pcall(function()
-            camera.CFrame = CFrame.new(camera.CFrame.Position, target.Character.Head.Position)
-        end)
-    end
 end)
+
+-- UI construction (Rayfield)
+-- Player Tab
+local PlayerTab = Window:CreateTab("Player")
+PlayerTab:CreateSection("Movement")
+PlayerTab:CreateToggle({Name="Speed Boost", CurrentValue=false, Callback=function(v) SpeedBoost = v end})
+PlayerTab:CreateSlider({Name="Speed Boost Amount", Range={1,50}, Increment=1, CurrentValue=SpeedBoostAmount, Callback=function(v) SpeedBoostAmount = v end})
+PlayerTab:CreateToggle({Name="WalkLegArmLock", CurrentValue=false, Callback=function(v) WalkLegArmLock = v end})
+PlayerTab:CreateToggle({Name="MaxZoomCamera", CurrentValue=false, Callback=function(v) MaxZoomCamera = v if v then Camera.MaxZoomDistance=10000 else Camera.MaxZoomDistance=30 end end})
+
+PlayerTab:CreateSection("Aim")
+PlayerTab:CreateToggle({Name="Auto Aim", CurrentValue=false, Callback=function(v) AutoAim = v end})
+PlayerTab:CreateToggle({Name="Silent Aim", CurrentValue=false, Callback=function(v) SilentAim = v end})
+PlayerTab:CreateSlider({Name="Aim Radius", Range={5,50}, Increment=1, CurrentValue=AimRadius, Callback=function(v) AimRadius = v end})
+PlayerTab:CreateSlider({Name="Click Cooldown (ms)", Range={20,500}, Increment=1, CurrentValue=math.floor(ClickCooldown*1000), Callback=function(v) ClickCooldown = v/1000 end})
+
+-- Visual Tab
+local VisualTab = Window:CreateTab("Visual")
+VisualTab:CreateSection("Sky")
+VisualTab:CreateToggle({Name="Cloud Color Enabled", CurrentValue=false, Callback=function(v) CloudColorToggle = v end})
+VisualTab:CreateColorPicker({Name="Cloud Color", Default=CloudColor, Callback=function(c) CloudColor = c end})
+VisualTab:CreateSection("All Parts")
+VisualTab:CreateToggle({Name="Enable All Part Color", CurrentValue=false, Callback=function(v) AllPartToggle = v end})
+VisualTab:CreateColorPicker({Name="All Part Color", Default=AllPartColor, Callback=function(c) AllPartColor = c end})
+VisualTab:CreateSection("ESP")
+VisualTab:CreateToggle({Name="Player ESP", CurrentValue=false, Callback=function(v) ESPEnabled = v end})
+
+-- FOV Tab
+local FOVTab = Window:CreateTab("FOV")
+FOVTab:CreateSlider({Name="Camera FOV", Range={30,160}, Increment=1, CurrentValue=Camera.FieldOfView, Callback=function(v) Camera.FieldOfView = v end})
+
+-- Anti Tab
+local AntiTab = Window:CreateTab("Anti")
+AntiTab:CreateToggle({Name="Anti Grab (Chappie)", CurrentValue=false, Callback=function(v) AntiGrabEnabled = v end})
+AntiTab:CreateToggle({Name="Auto-clean Body/Constraints (safety)", CurrentValue=true, Callback=function(v) -- if off nothing here
+    -- placeholder if you want an extra toggle later
+end})
+
+-- Grab Tab
+local GrabTab = Window:CreateTab("Grab")
+GrabTab:CreateToggle({Name="KiLL Grab", CurrentValue=false, Callback=function(v) KiLLGrab = v end})
+GrabTab:CreateLabel({Name="Note: Server protections may prevent killing other players from client."})
+
+-- done
+Rayfield:Notify({Title="Executor Hub", Content="Full pack loaded — Chappie antigrab + Grab + Visual + FOV + Player", Duration=4})
