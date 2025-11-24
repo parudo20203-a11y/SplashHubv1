@@ -1,16 +1,11 @@
 -- ====================================================================
--- Executor Hub: 設定ブロック削除版 - 全エラー対応＆超安定化スクリプト
--- ⚠️ 使い方: 機能を有効にするには、以下の 'local' 変数を個別に 'false' から 'true' に変更してください。
+-- Executor Hub: 関数定義優先 - UI安全起動版スクリプト
+-- ⚠️ UIが表示されない問題に対処するため、関数定義を最優先し、実行安定性を確保しました。
 -- ====================================================================
 
-task.wait(2)
-
--- Rayfieldの読み込みは念のため試行 (失敗しても続行)
-local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
-if not Rayfield then
-    warn("Rayfieldの読み込みに失敗しました。UIをスキップし、手動設定で続行します。")
-end
-
+-- -------------------------
+-- 🔹 共通定数と変数定義 (最上部)
+-- -------------------------
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 local Workspace = game:GetService("Workspace")
@@ -19,23 +14,23 @@ local UserInputService = game:GetService("UserInputService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local KILL_HEIGHT = -1000 
 local GRAB_RANGE = 15 
+local BASE_WALKSPEED = 16
+local BOOST_WALKSPEED = 60
 
--- 変数定義 (手動設定ブロックを統合)
-local AntiGrabEnabled = true      -- 掴み/投げられたときの【即脱出 + カウンターキル】
-local KiLLGrab = true             -- KiLL Grab (左クリック掴み即死)
-local SpeedBoost = true           -- Speed Boost
-local ToyInfEnabled = true        -- Toy Inf (おもちゃ無限自動生成)
-local TargetToyID = 1              -- 生成したいおもちゃのID (1~10で調整)
-local StopTrainEnabled = true     -- Stop Train (列車停止)
-local AutoAim = true              -- Auto Aim
-local AntiSeaEnabled = true       -- Anti Sea
+-- ⚠️ 機能のON/OFFはここで 'false' を 'true' に変更してください
+local AntiGrabEnabled = true
+local KiLLGrab = true
+local SpeedBoost = true
+local ToyInfEnabled = true
+local TargetToyID = 1
+local StopTrainEnabled = true
+local AutoAim = true
+local AntiSeaEnabled = true
 local WalkLegArmLock = true
 local SilentAim = true
 local AllPartCoreEnabled = true
 
--- 内部変数
-local BASE_WALKSPEED = 16
-local BOOST_WALKSPEED = 60
+-- 内部タスク変数
 local forcedTeleportTarget = nil 
 local ToyEvent = nil
 local ToyCount = 0      
@@ -45,8 +40,10 @@ local AutoAimTask = nil
 local AntiSeaTask = nil
 
 -- -------------------------
--- 🔹 ヘルパー関数とコア操作 (変更なし)
+-- ⚙️ コア機能の定義 (すべての関数をここで定義)
 -- -------------------------
+
+-- 1. ヘルパー関数
 local function GetClosestPlayer(range)
     local closest, dist = nil, range
     for _, plr in pairs(Players:GetPlayers()) do
@@ -65,27 +62,36 @@ local function GetClosestPlayer(range)
     return closest
 end
 
--- -------------------------
--- 🏃‍♂️ Speed & WalkLock 制御 (アンチチート回避のためCharacterAddedのみに依存)
--- -------------------------
-LocalPlayer.CharacterAdded:Connect(function(char)
-    local hum = char:WaitForChildOfClass("Humanoid", 5)
-    if hum then
-        if SpeedBoost then
-            hum.WalkSpeed = BOOST_WALKSPEED
-        else
-            hum.WalkSpeed = BASE_WALKSPEED
-        end
-        if WalkLegArmLock then
-            hum.WalkSpeed = 0
-            hum.PlatformStand = true
+-- 2. Anti Grab/KiLL Grab 関連
+local function FindGrabbingPlayer(targetHRP)
+    local grabber = nil
+    local shortestDist = 10 
+    for _, plr in pairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer then
+            local char = plr.Character
+            local otherHRP = char and char:FindFirstChild("HumanoidRootPart")
+            if otherHRP then
+                local dist = (otherHRP.Position - targetHRP.Position).Magnitude
+                if dist < shortestDist then
+                    grabber = plr
+                    shortestDist = dist
+                end
+            end
         end
     end
-end)
+    return grabber
+end
 
--- -------------------------
--- 🌊 Anti Sea ループ (RenderSteppedから分離)
--- -------------------------
+local function TeleportPlayer(plr)
+    local char = plr.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if hrp then
+        pcall(function() hrp.CFrame = CFrame.new(hrp.Position.X, KILL_HEIGHT, hrp.Position.Z) end)
+        if Rayfield then Rayfield.Notify({Title = "Anti Grab", Content = "カウンター発動: "..plr.Name.."を海にテレポートしました。", Duration = 3}) end
+    end
+end
+
+-- 3. 各機能のStart/Stop関数
 local function startAntiSea()
     if AntiSeaTask then task.cancel(AntiSeaTask) end
     AntiSeaTask = task.spawn(function()
@@ -95,7 +101,7 @@ local function startAntiSea()
             if hrp and hrp.Position.Y < 0 then
                 pcall(function() hrp.CFrame = hrp.CFrame + Vector3.new(0,0.5,0) end)
             end
-            task.wait(0.1) -- 頻度を落とす
+            task.wait(0.1)
         end
     end)
 end
@@ -104,9 +110,6 @@ local function stopAntiSea()
     if AntiSeaTask then task.cancel(AntiSeaTask); AntiSeaTask = nil end
 end
 
--- -------------------------
--- 🎯 Auto Aim ループ (RenderSteppedから分離)
--- -------------------------
 local function startAutoAim()
     if AutoAimTask then task.cancel(AutoAimTask) end
     AutoAimTask = task.spawn(function()
@@ -130,9 +133,6 @@ local function stopAutoAim()
     if AutoAimTask then task.cancel(AutoAimTask); AutoAimTask = nil end
 end
 
--- -------------------------
--- 💣 KiLL Grab ループ (イベント過負荷対策)
--- -------------------------
 local function startKiLLGrab()
     if KiLLGrabTask then task.cancel(KiLLGrabTask) end
     KiLLGrabTask = task.spawn(function()
@@ -176,9 +176,6 @@ local function stopKiLLGrab()
     forcedTeleportTarget = nil
 end
 
--- -------------------------
--- 🚂 Stop Train ループ (RenderSteppedから分離)
--- -------------------------
 local function startStopTrain()
     if StopTrainTask then task.cancel(StopTrainTask) end
     StopTrainTask = task.spawn(function()
@@ -197,9 +194,6 @@ local function stopStopTrain()
     if StopTrainTask then task.cancel(StopTrainTask); StopTrainTask = nil end
 end
 
--- -------------------------
--- 🧸 Toy Inf コアロジック (変更なし)
--- -------------------------
 local function getToyEvent()
     local Events = ReplicatedStorage:FindFirstChild("Events")
     if not ToyEvent and Events then
@@ -207,7 +201,7 @@ local function getToyEvent()
     end
     return ToyEvent
 end
-local toySpawnTask = nil
+
 local function startToySpawn()
     local event = getToyEvent()
     if not event then
@@ -224,45 +218,16 @@ local function startToySpawn()
         end
     end)
 end
+
 local function stopToySpawn()
     if toySpawnTask then task.cancel(toySpawnTask); toySpawnTask = nil end
     ToyCount = 0
 end
 
 -- -------------------------
--- ★ Anti Grab 強化ロジック (エラー回避のためpcallを強化)
+-- ★ Anti Grab 強化ロジック (イベント接続)
 -- -------------------------
-local function FindGrabbingPlayer(targetHRP)
-    local grabber = nil
-    local shortestDist = 10 
-    
-    for _, plr in pairs(Players:GetPlayers()) do
-        if plr ~= LocalPlayer then
-            local char = plr.Character
-            local otherHRP = char and char:FindFirstChild("HumanoidRootPart")
-            if otherHRP then
-                local dist = (otherHRP.Position - targetHRP.Position).Magnitude
-                if dist < shortestDist then
-                    grabber = plr
-                    shortestDist = dist
-                end
-            end
-        end
-    end
-    return grabber
-end
-
-local function TeleportPlayer(plr)
-    local char = plr.Character
-    local hrp = char and char:FindFirstChild("HumanoidRootPart")
-    if hrp then
-        pcall(function() hrp.CFrame = CFrame.new(hrp.Position.X, KILL_HEIGHT, hrp.Position.Z) end)
-        if Rayfield then Rayfield.Notify({Title = "Anti Grab", Content = "カウンター発動: "..plr.Name.."を海にテレポートしました。", Duration = 3}) end
-    end
-end
-
 local function ChappieAntiGrab(char)
-    -- charに対してWaitForChildOfClass("Humanoid")を実行
     local hum = char:WaitForChildOfClass("Humanoid", 5) 
     local hrp = char:WaitForChild("HumanoidRootPart", 5)
     
@@ -310,10 +275,6 @@ local function ChappieAntiGrab(char)
     end)
 end
 
-LocalPlayer.CharacterAdded:Connect(ChappieAntiGrab)
-if LocalPlayer.Character then ChappieAntiGrab(LocalPlayer.Character) end
-
-
 -- -------------------------
 -- 🔹 RenderStepped ループ (低負荷処理のみ)
 -- -------------------------
@@ -324,16 +285,13 @@ RunService.RenderStepped:Connect(function()
     
     if not char or not hum or not hrp then return end
 
-    -- 1. WalkLegArmLockの解除
     if WalkLegArmLock then
         pcall(function() hum.WalkSpeed = 0; hum.PlatformStand = true; hum.HipHeight = 0.5 end)
     else
-        -- WalkSpeedのリセットはCharacterAddedで行うため、ここではWalkLock解除のみ
         if not SpeedBoost and hum.WalkSpeed ~= BASE_WALKSPEED then hum.WalkSpeed = BASE_WALKSPEED end
         hum.PlatformStand = false
     end
     
-    -- 2. All Part Core
     if AllPartCoreEnabled then
         for _, part in pairs(Workspace:GetDescendants()) do
             if part:IsA("BasePart") and part.CanCollide == false and part.Name:lower() ~= "handle" then
@@ -344,32 +302,39 @@ RunService.RenderStepped:Connect(function()
 end)
 
 -- -------------------------
--- 🔹 初期化処理 (メイン実行)
+-- 🚀 実行開始とUIロード (スクリプトの最後)
 -- -------------------------
--- Toy Inf
+
+-- 1. Anti Grab イベントの接続
+LocalPlayer.CharacterAdded:Connect(ChappieAntiGrab)
+if LocalPlayer.Character then ChappieAntiGrab(LocalPlayer.Character) end
+
+-- 2. Speed Boost イベントの接続 (CharacterAddedで対応済み)
+
+-- 3. Rayfieldのロードを安全に試行
+local success, Rayfield = pcall(function()
+    return loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
+end)
+
+if not success or not Rayfield then
+    warn("Rayfieldのロードに失敗しました。UIは表示されません。")
+end
+
+-- 4. 各機能の初期起動
 if ToyInfEnabled then startToySpawn() end
-
--- Stop Train
 if StopTrainEnabled then startStopTrain() end
-
--- Anti Sea
 if AntiSeaEnabled then startAntiSea() end
-
--- Auto Aim
 if AutoAim then startAutoAim() end
-
--- KiLL Grab
 if KiLLGrab then startKiLLGrab() end
 
--- Speed Boostの初期設定
 if SpeedBoost and LocalPlayer.Character then
     local hum = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
     if hum then hum.WalkSpeed = BOOST_WALKSPEED end
 end
 
--- Rayfieldがロードできた場合、UIコールバックで各機能を接続 (トグルON時にループを開始)
-if Rayfield then
-    local Window = Rayfield:CreateWindow({ Name = "Executor Hub", LoadingTitle = "Loading UI…", LoadingSubtitle = "Wait 2 seconds…", ConfigurationSaving = { Enabled = false } })
+-- 5. Rayfield UIの初期化と接続
+if success and Rayfield then
+    local Window = Rayfield:CreateWindow({ Name = "Executor Hub", LoadingTitle = "Loading UI…", LoadingSubtitle = "UI Loaded!", ConfigurationSaving = { Enabled = false } })
     
     local PlayerTab = Window:CreateTab("Player")
     PlayerTab:CreateSection("Movement")
