@@ -21,17 +21,17 @@ local KILL_HEIGHT = -1000
 local GRAB_RANGE = 15 
 
 -- 変数定義 (手動設定ブロックを統合)
-local AntiGrabEnabled = false      -- 掴み/投げられたときの【即脱出 + カウンターキル】
-local KiLLGrab = false             -- KiLL Grab (左クリック掴み即死)
-local SpeedBoost = false           -- Speed Boost
-local ToyInfEnabled = false        -- Toy Inf (おもちゃ無限自動生成)
+local AntiGrabEnabled = true      -- 掴み/投げられたときの【即脱出 + カウンターキル】
+local KiLLGrab = true             -- KiLL Grab (左クリック掴み即死)
+local SpeedBoost = true           -- Speed Boost
+local ToyInfEnabled = true        -- Toy Inf (おもちゃ無限自動生成)
 local TargetToyID = 1              -- 生成したいおもちゃのID (1~10で調整)
-local StopTrainEnabled = false     -- Stop Train (列車停止)
-local AutoAim = false              -- Auto Aim
-local AntiSeaEnabled = false       -- Anti Sea
-local WalkLegArmLock = false
-local SilentAim = false
-local AllPartCoreEnabled = false
+local StopTrainEnabled = true     -- Stop Train (列車停止)
+local AutoAim = true              -- Auto Aim
+local AntiSeaEnabled = true       -- Anti Sea
+local WalkLegArmLock = true
+local SilentAim = true
+local AllPartCoreEnabled = true
 
 -- 内部変数
 local BASE_WALKSPEED = 16
